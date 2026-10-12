@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    env::current_dir,
+    env::{current_dir, vars},
     fs::File,
     io::{BufRead, BufReader, Result},
 };
@@ -18,10 +18,24 @@ fn parse_line(line: String) -> Option<(String, String)> {
     return Some((var_name.to_string(), var_val));
 }
 
+pub fn check_env_availability(env_map: &HashMap<String, String>, env_vars: Vec<&str>) -> bool {
+    for var in env_vars {
+        if let None = env_map.get(var) {
+            return false;
+        };
+    }
+
+    true
+}
+
 pub fn load_env() -> Result<HashMap<String, String>> {
     let env_path = current_dir()?.join(".env");
 
     let mut env_hashmap = HashMap::new();
+
+    for (name, value) in vars() {
+        env_hashmap.insert(name, value);
+    }
 
     if !env_path.exists() || !env_path.is_file() {
         return Ok(env_hashmap);

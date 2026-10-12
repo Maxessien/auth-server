@@ -1,3 +1,5 @@
+pub mod controllers;
+pub mod db;
 pub mod routes;
 pub mod utils;
 
@@ -7,13 +9,26 @@ use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::{
+    db::db_connect::connect_pg,
     routes::{admin_routes::get_admin_router, client_routes::get_client_router},
-    utils::env_loader::load_env,
+    utils::env_loader::{check_env_availability, load_env},
 };
 
 #[tokio::main]
 async fn main() {
     let env_hashmap = load_env().unwrap();
+    let required = ["RUNTIME_ENV", "DATABASE_URI"];
+
+    if !check_env_availability(&env_hashmap, required.to_vec()) {
+        panic!("Some required env vars are missing");
+    };
+
+    let max_conn: u32 = match env_hashmap.get("MAX_DB_CONN") {
+        Some(conn) => conn.parse().unwrap(),
+        None => 5,
+    };
+
+    let db_pool = connect_pg(max_conn, env_hashmap.get("DATABASE_URI").unwrap()).await;
 
     let port = match env_hashmap.get("PORT") {
         Some(port) => port.to_string(),
@@ -25,6 +40,7 @@ async fn main() {
 
     let app = Router::new()
         .with_state(env_hashmap)
+        .with_state(db_pool)
         .merge(client_routes)
         .merge(admin_routes)
         .layer(
@@ -37,7 +53,7 @@ async fn main() {
         .await
         .unwrap();
 
-    println!("Server running on port: {}", port);
+    println!("Server listening on port: {}", port);
 
     serve(listener, app).await.unwrap();
 }

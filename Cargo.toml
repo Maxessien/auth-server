@@ -5,6 +5,13 @@ edition = "2024"
 
 [dependencies]
 axum = "0.8.9"
+sqlx = {version = "=0.9.0", features = ["runtime-tokio", "tls-native-tls"]}
 tokio = {version= "1.53.2", features=["full"]}
 tower = "0.5.3"
 tower-http = {version = "0.7.1", features = ["trace", "cors"]}
+
+[features]
+default = ["postgres"] # Cargo will run this automatically if no flag is provided
+postgres = ["sqlx/postgres"]
+mysql = ["sqlx/mysql"]
+sqlite = ["sqlx/sqlite"]
