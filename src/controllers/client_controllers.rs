@@ -1,27 +1,28 @@
-use axum::{
-    Json,
-    extract::State,
-    http::{Response, StatusCode, header},
-    response::IntoResponse,
-};
-use sqlx::query;
+use auth_server::db::db_connect::connect_mod::AppPool;
+use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 
-use crate::{db::db_connect::connect_mod::AppPool, models::api_requests::RegisterReqBody};
+use crate::{models::api_requests::RegisterReqBody, queries::client_queries::register_user_query};
 
 pub async fn register_user(
     Json(body): Json<RegisterReqBody>,
     State(pool): State<AppPool>,
 ) -> impl IntoResponse {
-    // query!("
-    //         INSERT INTO users (user_name, password_hash, email, phone, is_verified, user_id, access_token,
-    //         refresh_token, last_login, created_at, updated_at) VALUES
-    //         ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-    //     ");
+    let query_res = register_user_query(&body).execute(&pool.pool).await;
 
-    let res = Response::builder()
-        .status(StatusCode::CREATED)
-        .header(header::CONTENT_TYPE, "application/json")
-        .body("body".to_string())
-        .unwrap();
-    res
+    if let Err(err) = query_res {
+        return match err.as_database_error() {
+            Some(error) => {
+                if error.is_unique_violation() {
+                    StatusCode::CONFLICT
+                } else if error.is_check_violation() {
+                    StatusCode::NOT_ACCEPTABLE
+                } else {
+                    StatusCode::INTERNAL_SERVER_ERROR
+                }
+            }
+            None => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+    }
+
+    StatusCode::CREATED
 }

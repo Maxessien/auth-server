@@ -17,5 +17,5 @@ pub struct User {
     pub refresh_token: Option<String>,
     pub last_login: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>
+    pub updated_at: DateTime<Utc>,
 }

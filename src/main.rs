@@ -1,17 +1,16 @@
 pub mod controllers;
-pub mod db;
 pub mod models;
 pub mod queries;
 pub mod routes;
 pub mod utils;
 
+use auth_server::db::db_connect::connect_mod::{AppPool, connect_pg};
 use axum::{Router, serve};
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::{
-    db::db_connect::connect_mod::{AppPool, connect_pg},
     routes::{admin_routes::get_admin_router, client_routes::get_client_router},
     utils::env_loader::{check_env_availability, load_env},
 };
@@ -30,7 +29,8 @@ async fn main() {
         None => 5,
     };
 
-    let db_pool = connect_pg(max_conn, env_hashmap.get("DATABASE_URI").unwrap()).await;
+    let db_pool = connect_pg(max_conn, env_hashmap.get("DATABASE_URL").unwrap()).await;
+    let app_pool = AppPool { pool: db_pool };
 
     let port = match env_hashmap.get("PORT") {
         Some(port) => port.to_string(),
@@ -42,7 +42,7 @@ async fn main() {
 
     let app = Router::new()
         .with_state(env_hashmap)
-        .with_state(AppPool { pool: db_pool })
+        .with_state(app_pool)
         .merge(client_routes)
         .merge(admin_routes)
         .layer(
