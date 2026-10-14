@@ -1,5 +1,7 @@
 pub mod controllers;
 pub mod db;
+pub mod models;
+pub mod queries;
 pub mod routes;
 pub mod utils;
 
@@ -9,7 +11,7 @@ use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::{
-    db::db_connect::connect_pg,
+    db::db_connect::connect_mod::{AppPool, connect_pg},
     routes::{admin_routes::get_admin_router, client_routes::get_client_router},
     utils::env_loader::{check_env_availability, load_env},
 };
@@ -40,7 +42,7 @@ async fn main() {
 
     let app = Router::new()
         .with_state(env_hashmap)
-        .with_state(db_pool)
+        .with_state(AppPool { pool: db_pool })
         .merge(client_routes)
         .merge(admin_routes)
         .layer(

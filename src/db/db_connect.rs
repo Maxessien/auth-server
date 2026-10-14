@@ -1,47 +1,65 @@
 #[cfg(feature = "postgres")]
-use sqlx::{PgPool, postgres::PgPoolOptions};
+pub mod connect_mod {
+    use sqlx::{PgPool, postgres::PgPoolOptions};
 
-#[cfg(feature = "postgres")]
-pub async fn connect_pg(max_conn: u32, db_uri: &str) -> PgPool {
-    let pool = PgPoolOptions::new()
-        .max_connections(max_conn)
-        .connect(db_uri)
-        .await
-        .unwrap();
+    #[derive(Clone)]
+    pub struct AppPool {
+        pub pool: PgPool,
+    }
 
-    println!("Postgres db connected");
+    pub async fn connect_pg(max_conn: u32, db_uri: &str) -> PgPool {
+        let pool = PgPoolOptions::new()
+            .max_connections(max_conn)
+            .connect(db_uri)
+            .await
+            .unwrap();
 
-    pool
+        println!("Postgres db connected");
+
+        pool
+    }
 }
 
 #[cfg(feature = "mysql")]
-use sqlx::{MySqlPool, mysql::MySqlPoolOptions};
+pub mod connect_mod {
+    use sqlx::{MySqlPool, mysql::MySqlPoolOptions};
 
-#[cfg(feature = "mysql")]
-pub async fn connect_pg(max_conn: u32, db_uri: &str) -> MySqlPool {
-    let pool = MySqlPoolOptions::new()
-        .max_connections(max_conn)
-        .connect(db_uri)
-        .await
-        .unwrap();
+    #[derive(Clone)]
+    pub struct AppPool {
+        pub pool: MySqlPool,
+    }
 
-    println!("MySQL db connected");
+    pub async fn connect_pg(max_conn: u32, db_uri: &str) -> MySqlPool {
+        let pool = MySqlPoolOptions::new()
+            .max_connections(max_conn)
+            .connect(db_uri)
+            .await
+            .unwrap();
 
-    pool
+        println!("MySQL db connected");
+
+        pool
+    }
 }
 
 #[cfg(feature = "sqlite")]
-use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
+pub mod connect_mod {
+    use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 
-#[cfg(feature = "sqlite")]
-pub async fn connect_pg(max_conn: u32, db_uri: &str) -> SqlitePool {
-    let pool = SqlitePoolOptions::new()
-        .max_connections(max_conn)
-        .connect(db_uri)
-        .await
-        .unwrap();
+    #[derive(Clone)]
+    pub struct AppPool {
+        pub pool: SqlitePool,
+    }
 
-    println!("SQLite db connected");
+    pub async fn connect_pg(max_conn: u32, db_uri: &str) -> SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(max_conn)
+            .connect(db_uri)
+            .await
+            .unwrap();
 
-    pool
+        println!("SQLite db connected");
+
+        pool
+    }
 }
