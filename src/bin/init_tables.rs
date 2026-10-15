@@ -4,7 +4,7 @@ use auth_server::db::db_connect::connect_mod::{AppPool, connect_pg};
 use sqlx::query;
 
 async fn create_user_table(pool: &AppPool) {
-    query!(
+    match query!(
         "
         CREATE TABLE IF NOT EXISTS users (
         user_id TEXT PRIMARY KEY,
@@ -12,7 +12,7 @@ async fn create_user_table(pool: &AppPool) {
         password_hash TEXT NOT NULL,
         email TEXT NOT NULL UNIQUE,
         phone TEXT UNIQUE,
-        is_verified JSONB NOT NULL,
+        is_verified TEXT NOT NULL,
         last_login TIMESTAMPTZ NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -21,7 +21,13 @@ async fn create_user_table(pool: &AppPool) {
     )
     .execute(&pool.pool)
     .await
-    .unwrap();
+    {
+        Ok(_) => (),
+        Err(err) => {
+            println!("Error creating user table: {}", err.to_string());
+            panic!("")
+        }
+    };
 }
 
 pub async fn create_tables(pool: &AppPool) {

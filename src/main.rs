@@ -18,10 +18,13 @@ use crate::{
 #[tokio::main]
 async fn main() {
     let env_hashmap = load_env().unwrap();
-    let required = ["RUNTIME_ENV", "DATABASE_URI"];
+    let required = ["RUNTIME_ENV", "DATABASE_URL", "JWT_SECRET"];
 
-    if !check_env_availability(&env_hashmap, required.to_vec()) {
-        panic!("Some required env vars are missing");
+    let (has_missing, missing) = check_env_availability(&env_hashmap, required.to_vec());
+
+    if !has_missing {
+        println!("Some required env vars are missing: {:?}", missing);
+        panic!("")
     };
 
     let max_conn: u32 = match env_hashmap.get("MAX_DB_CONN") {

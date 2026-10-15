@@ -8,12 +8,17 @@ pub mod connect_mod {
     }
 
     pub async fn connect_pg(max_conn: u32, db_uri: &str) -> PgPool {
-        let pool = PgPoolOptions::new()
+        let pool = match PgPoolOptions::new()
             .max_connections(max_conn)
             .connect(db_uri)
             .await
-            .unwrap();
-
+        {
+            Ok(val) => val,
+            Err(err) => {
+                println!("Error connecting to db: {}", err.to_string());
+                panic!("");
+            }
+        };
         println!("Postgres db connected");
 
         pool
@@ -30,12 +35,17 @@ pub mod connect_mod {
     }
 
     pub async fn connect_pg(max_conn: u32, db_uri: &str) -> MySqlPool {
-        let pool = MySqlPoolOptions::new()
+        let pool = match MySqlPoolOptions::new()
             .max_connections(max_conn)
             .connect(db_uri)
             .await
-            .unwrap();
-
+        {
+            Ok(val) => val,
+            Err(err) => {
+                println!("Error connecting to db: {}", err.to_string());
+                panic!("");
+            }
+        };
         println!("MySQL db connected");
 
         pool
@@ -52,12 +62,17 @@ pub mod connect_mod {
     }
 
     pub async fn connect_pg(max_conn: u32, db_uri: &str) -> SqlitePool {
-        let pool = SqlitePoolOptions::new()
+        let pool = match SqlitePoolOptions::new()
             .max_connections(max_conn)
             .connect(db_uri)
             .await
-            .unwrap();
-
+        {
+            Ok(val) => val,
+            Err(err) => {
+                println!("Error connecting to db: {}", err.to_string());
+                panic!("");
+            }
+        };
         println!("SQLite db connected");
 
         pool

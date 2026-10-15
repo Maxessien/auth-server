@@ -1,21 +1,38 @@
-use sqlx::types::chrono::{DateTime, Utc};
-use uuid::Uuid;
+use serde::{Deserialize, Serialize};
 
+#[derive(Serialize, Deserialize)]
+pub enum TknType {
+    Access,
+    Refresh,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct IsVerified {
     pub email: bool,
     pub phone: bool,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
 pub struct User {
     pub user_name: String,
     pub password_hash: String,
     pub email: String,
     pub phone: Option<String>,
-    pub is_verified: IsVerified,
-    pub user_id: Uuid,
-    pub access_token: Option<String>,
-    pub refresh_token: Option<String>,
-    pub last_login: DateTime<Utc>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub is_verified: String,
+    pub user_id: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct DecodedAccessTkn {
+    pub user_info: User,
+    pub expires_at_sec: i64,
+    pub issued_at_sec: i64,
+    pub iss_id: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct DecodedRefreshTkn {
+    pub expires_at_sec: i64,
+    pub issued_at_sec: i64,
+    pub iss_id: String,
 }

@@ -18,14 +18,18 @@ fn parse_line(line: String) -> Option<(String, String)> {
     return Some((var_name.to_string(), var_val));
 }
 
-pub fn check_env_availability(env_map: &HashMap<String, String>, env_vars: Vec<&str>) -> bool {
+pub fn check_env_availability(
+    env_map: &HashMap<String, String>,
+    env_vars: Vec<&str>,
+) -> (bool, Vec<String>) {
+    let mut missing: Vec<String> = Vec::new();
     for var in env_vars {
         if let None = env_map.get(var) {
-            return false;
+            missing.push(var.to_string());
         };
     }
 
-    true
+    (missing.len() == 0, missing)
 }
 
 pub fn load_env() -> Result<HashMap<String, String>> {
