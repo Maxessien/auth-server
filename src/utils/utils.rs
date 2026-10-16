@@ -16,7 +16,7 @@ pub trait AuthServerErrors {
 
 pub trait TokensList {
     fn new() -> Self;
-    fn revoke(&mut self, iss_id: String) -> Result<(), AppErrors>;
+    fn revoke(&mut self, iss_id: &str) -> ();
     fn is_revoked(&self, iss_id: &str) -> bool;
     fn is_valid(&self, item: (&str, &str, i64, TknType)) -> bool;
     fn add_token(&mut self, item: TokensListItem) -> ();
@@ -44,15 +44,15 @@ impl TokensList for Tokens {
             saved: HashMap::new(),
         }
     }
-    fn revoke(&mut self, iss_id: String) -> Result<(), AppErrors> {
-        if self.unsaved.get(&iss_id).is_some() {
-            self.unsaved.remove(&iss_id);
+    fn revoke(&mut self, iss_id: &str) -> () {
+        if self.unsaved.get(iss_id).is_some() {
+            self.unsaved.remove(iss_id);
         };
-        if self.saved.get(&iss_id).is_some() {
-            self.saved.remove(&iss_id);
+        if self.saved.get(iss_id).is_some() {
+            self.saved.remove(iss_id);
         };
-        self.revoked.push(iss_id);
-        Ok(())
+        self.revoked.push(iss_id.to_string());
+        ()
     }
     fn is_revoked(&self, iss_id: &str) -> bool {
         self.revoked.contains(&iss_id.to_string())
