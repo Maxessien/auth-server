@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use axum::body::Body;
 use jsonwebtoken::Algorithm;
 use serde_json::Error;
-use sqlx::types::chrono::{DateTime, Utc};
+use sqlx::types::chrono::Utc;
 
-use crate::models::users::{DecodedAccessTkn, DecodedRefreshTkn, TknType};
+use crate::models::users::TknType;
 
 pub trait AuthServerErrors {
     fn new(cause: String, friendly_msg: &str, line: u32, col: u32, file: &str) -> Self;

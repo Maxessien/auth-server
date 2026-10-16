@@ -1,5 +1,3 @@
-use std::{collections::HashMap, sync::Arc};
-
 use argon2::{
     Argon2,
     password_hash::{PasswordHasher, PasswordVerifier, phc::PasswordHash},
@@ -12,18 +10,22 @@ use axum::{
     http::{Extensions, HeaderMap, HeaderValue, Response, StatusCode, header},
     response::IntoResponse,
 };
+use axum_extra::extract::{
+    CookieJar,
+    cookie::{Cookie, SameSite},
+};
 use jsonwebtoken::{EncodingKey, Header};
 use sqlx::types::chrono::Utc;
-use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::{
     models::{
-        api_requests::{AvailableField, LoginReqBody, LoginResBody, RegisterReqBody},
+        api_requests::{AvailableField, LoginReqBody, RegisterReqBody},
         users::{DecodedAccessTkn, DecodedRefreshTkn},
     },
     queries::client_queries::{login_user_query, register_user_query},
-    utils::utils::{AppErrors, AuthServerErrors, Tkns, Tokens, TokensList},
+    routes::client_routes::ClientRouterStates,
+    utils::utils::{AppErrors, AuthServerErrors, Tkns, TokensList},
 };
 
 pub async fn register_user(
@@ -58,12 +60,14 @@ pub async fn register_user(
     StatusCode::CREATED
 }
 
+#[axum::debug_handler]
 pub async fn login_user(
+    jar: CookieJar,
+    req_headers: HeaderMap,
+    State(state): State<ClientRouterStates>,
     Json(body): Json<LoginReqBody>,
-    State(pool): State<AppPool>,
-    State(env_map): State<HashMap<String, String>>,
-    State(sessions): State<Arc<RwLock<Tokens>>>,
-) -> impl IntoResponse {
+) -> (CookieJar, Response<Body>) {
+    let (env_map, pool, sessions) = state;
     let mut res_header = HeaderMap::new();
     res_header.append(
         header::CONTENT_TYPE,
@@ -81,9 +85,12 @@ pub async fn login_user(
             Some(phone) => login_user_query(AvailableField::Phone, phone, &pool).await,
             None => {
                 res_parts.status = StatusCode::BAD_REQUEST;
-                return Response::from_parts(
-                    res_parts,
-                    Body::new("Email or phone required".to_string()),
+                return (
+                    jar,
+                    Response::from_parts(
+                        res_parts,
+                        Body::new("Email or phone required".to_string()),
+                    ),
                 );
             }
         },
@@ -97,7 +104,7 @@ pub async fn login_user(
             app_err.log();
 
             res_parts.status = StatusCode::INTERNAL_SERVER_ERROR;
-            return Response::from_parts(res_parts, app_err.as_http_body());
+            return (jar, Response::from_parts(res_parts, app_err.as_http_body()));
         }
     };
 
@@ -109,7 +116,7 @@ pub async fn login_user(
             app_err.log();
 
             res_parts.status = StatusCode::INTERNAL_SERVER_ERROR;
-            return Response::from_parts(res_parts, app_err.as_http_body());
+            return (jar, Response::from_parts(res_parts, app_err.as_http_body()));
         }
     };
 
@@ -120,14 +127,20 @@ pub async fn login_user(
         .is_ok()
     {
         res_parts.status = StatusCode::UNAUTHORIZED;
-        return Response::from_parts(res_parts, Body::new("Invalid password".to_string()));
+        return (
+            jar,
+            Response::from_parts(res_parts, Body::new("Invalid password".to_string())),
+        );
     }
 
     let jwt_secret = match env_map.get("JWT_SECRET") {
         Some(secret) => secret,
         None => {
             res_parts.status = StatusCode::INTERNAL_SERVER_ERROR;
-            return Response::from_parts(res_parts, Body::new("Server error".to_string()));
+            return (
+                jar,
+                Response::from_parts(res_parts, Body::new("Server error".to_string())),
+            );
         }
     };
 
@@ -155,20 +168,6 @@ pub async fn login_user(
     let refresh_token =
         jsonwebtoken::encode(&encoding_header, &refresh_claims, &encoding_key).unwrap();
 
-    let acc_tkn_cookie = match HeaderValue::from_str(&access_token) {
-        Ok(val) => val,
-        Err(err) => {
-            let app_err =
-                AppErrors::new(err.to_string(), "Server error", line!(), column!(), file!());
-            app_err.log();
-
-            res_parts.status = StatusCode::INTERNAL_SERVER_ERROR;
-            return Response::from_parts(res_parts, app_err.as_http_body());
-        }
-    };
-
-    res_parts.headers.append(header::COOKIE, acc_tkn_cookie);
-
     let mut lock = sessions.write().await;
 
     lock.add_token((
@@ -180,23 +179,63 @@ pub async fn login_user(
         },
     ));
 
-    let login_res = LoginResBody {
-        user,
-        access_token,
-        refresh_token,
-    };
-
-    let res_body = match serde_json::to_string(&login_res) {
+    let res_body = match serde_json::to_string(&user) {
         Ok(val) => val,
         Err(err) => {
             let app_err =
                 AppErrors::new(err.to_string(), "Server error", line!(), column!(), file!());
             app_err.log();
 
-            return Response::from_parts(res_parts, app_err.as_http_body());
+            return (jar, Response::from_parts(res_parts, app_err.as_http_body()));
         }
     };
 
     res_parts.status = StatusCode::OK;
-    Response::from_parts(res_parts, Body::from(res_body.as_bytes().to_owned()))
+
+    let origin = match req_headers.get(header::ORIGIN) {
+        Some(val) => match val.to_str() {
+            Ok(v) => v.to_string(),
+            Err(err) => {
+                let app_err =
+                    AppErrors::new(err.to_string(), "Server error", line!(), column!(), file!());
+                app_err.log();
+
+                return (jar, Response::from_parts(res_parts, app_err.as_http_body()));
+            }
+        },
+        None => {
+            res_parts.status = StatusCode::BAD_REQUEST;
+            return (
+                jar,
+                Response::from_parts(res_parts, Body::new(String::from("Bad request"))),
+            );
+        }
+    };
+
+    let is_development = env_map
+        .get("RUNTIME_ENV")
+        .unwrap_or(&String::from("development"))
+        == "development";
+
+    let access_ck = Cookie::build(("access_token", access_token))
+        .domain(origin.clone())
+        .path("/")
+        .same_site(SameSite::None)
+        .secure(!is_development);
+
+    let refresh_ck = Cookie::build(("refresh_token", refresh_token))
+        .domain(origin)
+        .path("/")
+        .same_site(SameSite::None)
+        .secure(!is_development);
+
+    let mut updated_jar = jar.add(access_ck);
+    updated_jar = updated_jar.add(refresh_ck);
+
+    (
+        updated_jar,
+        Response::from_parts(res_parts, Body::from(res_body.as_bytes().to_owned())),
+    )
 }
+
+pub async fn update_user() {}

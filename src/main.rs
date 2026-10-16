@@ -1,4 +1,5 @@
 pub mod controllers;
+pub mod middlewares;
 pub mod models;
 pub mod queries;
 pub mod routes;
@@ -13,6 +14,7 @@ use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::{
+    queries::app_queries::save_tokens,
     routes::{admin_routes::get_admin_router, client_routes::get_client_router},
     utils::{
         env_loader::{check_env_availability, load_env},
@@ -45,23 +47,42 @@ async fn main() {
         None => "4000".to_string(),
     };
 
-    let client_routes = get_client_router();
-    let admin_routes = get_admin_router();
-
     let sessions = Arc::new(RwLock::new(Tokens::new()));
     let sessions_clone = sessions.clone();
+    let app_pool_clone = app_pool.clone();
 
     spawn(async move {
         loop {
-            for (key, val) in sessions_clone.read().await.unsaved.iter() {}
+            let mut saved: Vec<String> = Vec::new();
+
+            for (key, val) in sessions_clone.read().await.unsaved.iter() {
+                let is_saved = save_tokens(
+                    &app_pool_clone,
+                    key.clone(),
+                    (val.access.clone(), val.refresh.clone()),
+                )
+                .await;
+                if is_saved {
+                    saved.push(key.clone());
+                }
+            }
+            let mut lock = sessions_clone.write().await;
+
+            for key in saved {
+                if let Some(val) = lock.unsaved.remove(&key) {
+                    lock.saved.insert(key, val);
+                };
+            }
+            drop(lock);
+
             sleep(Duration::from_mins(5)).await;
         }
     });
 
+    let client_routes = get_client_router((env_hashmap, app_pool, sessions));
+    let admin_routes = get_admin_router();
+
     let app = Router::new()
-        .with_state(env_hashmap)
-        .with_state(app_pool)
-        .with_state(sessions)
         .merge(client_routes)
         .merge(admin_routes)
         .layer(

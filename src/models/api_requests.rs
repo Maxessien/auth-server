@@ -1,7 +1,6 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-use crate::models::users::User;
-
+#[derive(Serialize, Deserialize)]
 pub struct RegisterReqBody {
     pub user_name: String,
     pub password: String,
@@ -9,17 +8,11 @@ pub struct RegisterReqBody {
     pub phone: Option<String>,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct LoginReqBody {
     pub email: Option<String>,
     pub phone: Option<String>,
     pub password: String,
-}
-
-#[derive(Serialize)]
-pub struct LoginResBody {
-    pub user: User,
-    pub access_token: String,
-    pub refresh_token: String,
 }
 
 pub enum AvailableField {

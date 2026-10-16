@@ -1,10 +1,30 @@
 use std::env::var;
 
 use auth_server::db::db_connect::connect_mod::{AppPool, connect_pg};
-use sqlx::query;
+use sqlx::{Error, postgres::PgQueryResult, query};
+
+#[cfg(feature = "postgres")]
+type AppQueryResult = PgQueryResult;
+
+#[cfg(feature = "mysql")]
+type AppQueryResult = MySqlQueryResult;
+
+#[cfg(feature = "sqlite")]
+type AppQueryResult = SqliteQueryResult;
+
+fn wrapper(result: Result<AppQueryResult, Error>) {
+    match result {
+        Ok(_) => (),
+        Err(err) => {
+            println!("Error creating table: {}", err.to_string());
+            panic!("")
+        }
+    };
+    ()
+}
 
 async fn create_user_table(pool: &AppPool) {
-    match query!(
+    let res = query!(
         "
         CREATE TABLE IF NOT EXISTS users (
         user_id TEXT PRIMARY KEY,
@@ -20,18 +40,29 @@ async fn create_user_table(pool: &AppPool) {
     "
     )
     .execute(&pool.pool)
-    .await
-    {
-        Ok(_) => (),
-        Err(err) => {
-            println!("Error creating user table: {}", err.to_string());
-            panic!("")
-        }
-    };
+    .await;
+    wrapper(res)
 }
 
-pub async fn create_tables(pool: &AppPool) {
+async fn create_sessions_table(pool: &AppPool) {
+    let res = query!(
+        "
+        CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT NOT NULL,
+        access_token TEXT NOT NULL,
+        refresh_token TEXT NOT NULL
+        )
+    "
+    )
+    .execute(&pool.pool)
+    .await;
+
+    wrapper(res)
+}
+
+async fn create_tables(pool: &AppPool) {
     create_user_table(pool).await;
+    create_sessions_table(pool).await;
 }
 
 #[tokio::main]
