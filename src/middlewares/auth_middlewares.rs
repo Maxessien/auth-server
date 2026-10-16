@@ -16,9 +16,9 @@ use crate::{
 };
 
 pub async fn verify_access_token(
-    req: Request,
     jar: CookieJar,
     State(state): State<ClientRouterStates>,
+    mut req: Request<Body>,
     next: Next,
 ) -> impl IntoResponse {
     let (env_map, _, sessions) = state;
@@ -67,6 +67,8 @@ pub async fn verify_access_token(
     )) {
         return Response::from_parts(parts, Body::new("Invalid access token".to_string()));
     };
+
+    req.extensions_mut().insert(decoded);
 
     let response = next.run(req).await;
 

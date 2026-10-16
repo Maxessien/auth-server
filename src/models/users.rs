@@ -22,7 +22,7 @@ pub struct User {
     pub user_id: String,
 }
 
-#[derive(Serialize, Deserialize, PartialEq)]
+#[derive(Serialize, Deserialize, PartialEq, Clone)]
 pub struct DecodedAccessTkn {
     pub user_info: User,
     pub expires_at_sec: i64,
@@ -30,7 +30,7 @@ pub struct DecodedAccessTkn {
     pub iss_id: String,
 }
 
-#[derive(Serialize, Deserialize, PartialEq)]
+#[derive(Serialize, Deserialize, PartialEq, Clone)]
 pub struct DecodedRefreshTkn {
     pub expires_at_sec: i64,
     pub issued_at_sec: i64,

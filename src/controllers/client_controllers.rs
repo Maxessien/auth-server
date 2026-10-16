@@ -4,7 +4,7 @@ use argon2::{
 };
 use auth_server::db::db_connect::connect_mod::AppPool;
 use axum::{
-    Json,
+    Extension, Json,
     body::Body,
     extract::State,
     http::{Extensions, HeaderMap, HeaderValue, Response, StatusCode, header},
@@ -15,12 +15,12 @@ use axum_extra::extract::{
     cookie::{Cookie, SameSite},
 };
 use jsonwebtoken::{EncodingKey, Header};
-use sqlx::types::chrono::Utc;
+use sqlx::{query, types::chrono::Utc};
 use uuid::Uuid;
 
 use crate::{
     models::{
-        api_requests::{AvailableField, LoginReqBody, RegisterReqBody},
+        api_requests::{AvailableField, LoginReqBody, RegisterReqBody, UpdateUserReqBody},
         users::{DecodedAccessTkn, DecodedRefreshTkn},
     },
     queries::client_queries::{login_user_query, register_user_query},
@@ -238,4 +238,57 @@ pub async fn login_user(
     )
 }
 
-pub async fn update_user() {}
+pub async fn update_user(
+    Extension(access_tkn): Extension<DecodedAccessTkn>,
+    State(state): State<ClientRouterStates>,
+    Json(body): Json<UpdateUserReqBody>,
+) -> impl IntoResponse {
+    let UpdateUserReqBody {
+        user_name,
+        password,
+        email,
+        phone,
+    } = body;
+
+    let password_hash = match password {
+        Some(p) => {
+            let argon2 = Argon2::default();
+            let password_hash = match argon2.hash_password(&p.as_bytes()) {
+                Ok(hash) => hash.to_string(),
+                Err(_) => return StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            password_hash
+        }
+        None => access_tkn.user_info.password_hash,
+    };
+
+    match query!(
+        "
+        UPDATE users SET user_name = $1, password_hash = $2, email = $3, phone = $4
+        WHERE user_id = $5
+        ",
+        user_name.unwrap_or(access_tkn.user_info.user_name),
+        password_hash,
+        email.unwrap_or(access_tkn.user_info.email),
+        phone,
+        access_tkn.user_info.user_id
+    )
+    .execute(&state.1.pool)
+    .await
+    {
+        Ok(_) => (),
+        Err(err) => {
+            let app_err = AppErrors::new(
+                err.to_string(),
+                "Couldn't update user",
+                line!(),
+                column!(),
+                file!(),
+            );
+            app_err.log();
+            return StatusCode::INTERNAL_SERVER_ERROR;
+        }
+    };
+
+    StatusCode::OK
+}
