@@ -12,7 +12,7 @@ pub struct IsVerified {
     pub phone: bool,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct User {
     pub user_name: String,
     pub password_hash: String,
@@ -22,7 +22,7 @@ pub struct User {
     pub user_id: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq)]
 pub struct DecodedAccessTkn {
     pub user_info: User,
     pub expires_at_sec: i64,
@@ -30,7 +30,7 @@ pub struct DecodedAccessTkn {
     pub iss_id: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq)]
 pub struct DecodedRefreshTkn {
     pub expires_at_sec: i64,
     pub issued_at_sec: i64,

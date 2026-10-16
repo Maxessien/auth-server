@@ -4,15 +4,20 @@ pub mod queries;
 pub mod routes;
 pub mod utils;
 
+use std::{sync::Arc, time::Duration};
+
 use auth_server::db::db_connect::connect_mod::{AppPool, connect_pg};
 use axum::{Router, serve};
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, spawn, sync::RwLock, time::sleep};
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::{
     routes::{admin_routes::get_admin_router, client_routes::get_client_router},
-    utils::env_loader::{check_env_availability, load_env},
+    utils::{
+        env_loader::{check_env_availability, load_env},
+        utils::{Tokens, TokensList},
+    },
 };
 
 #[tokio::main]
@@ -43,9 +48,20 @@ async fn main() {
     let client_routes = get_client_router();
     let admin_routes = get_admin_router();
 
+    let sessions = Arc::new(RwLock::new(Tokens::new()));
+    let sessions_clone = sessions.clone();
+
+    spawn(async move {
+        loop {
+            for (key, val) in sessions_clone.read().await.unsaved.iter() {}
+            sleep(Duration::from_mins(5)).await;
+        }
+    });
+
     let app = Router::new()
         .with_state(env_hashmap)
         .with_state(app_pool)
+        .with_state(sessions)
         .merge(client_routes)
         .merge(admin_routes)
         .layer(

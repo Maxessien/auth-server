@@ -1,5 +1,6 @@
 use auth_server::db::db_connect::connect_mod::AppPool;
 
+use serde_json::json;
 #[cfg(feature = "postgres")]
 use sqlx::Postgres;
 
@@ -42,11 +43,16 @@ pub fn register_user_query(body: &RegisterReqBody, password_hash: String) -> Que
         email,
         phone,
     } = body;
-    let is_verified = serde_json::json!(IsVerified {
+    let is_verified = match serde_json::to_string(&IsVerified {
         email: false,
         phone: false,
-    })
-    .to_string();
+    }) {
+        Ok(val) => val,
+        Err(_) => json!({
+            "email": false, "phone": false
+        })
+        .to_string(),
+    };
     let uuid = Uuid::new_v4().to_string();
     let now = Utc::now();
 
