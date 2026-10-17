@@ -92,7 +92,7 @@ pub async fn update_user(
         phone,
         is_verified,
         password,
-        user_id: _,
+        user_id,
     } = body;
     let user = handle_errs(
         query_as!(
@@ -101,7 +101,7 @@ pub async fn update_user(
         SELECT user_name, email, phone, user_id,
         is_verified, password_hash FROM users WHERE user_id = $1
         ",
-            body.user_id
+            user_id.clone()
         )
         .fetch_one(&pool.pool)
         .await,
@@ -126,13 +126,14 @@ pub async fn update_user(
     let res = query!(
         "
         UPDATE users SET user_name = $1, email = $2, phone = $3,
-        password_hash = $4, is_verified = $5
+        password_hash = $4, is_verified = $5 WHERE user_id = $6
     ",
         user_name.unwrap_or(user.user_name),
         email.unwrap_or(user.email),
         phone,
         password_hash,
-        is_verified.unwrap_or(user.is_verified)
+        is_verified.unwrap_or(user.is_verified),
+        user_id
     )
     .execute(&pool.pool)
     .await;
@@ -148,10 +149,10 @@ pub async fn update_user(
 
 pub async fn delete_user(
     State(pool): State<AppPool>,
-    Query(user_id): Query<String>,
+    Query(user_id): Query<GetUserQuery>,
 ) -> Result<StatusCode, StatusCode> {
     handle_errs(
-        query!("DELETE FROM users WHERE user_id = $1", user_id)
+        query!("DELETE FROM users WHERE user_id = $1", user_id.user_id)
             .execute(&pool.pool)
             .await,
         StatusCode::INTERNAL_SERVER_ERROR,

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     models::users::DecodedRefreshTkn,
-    utils::utils::{TokensList, handle_errs},
+    utils::utils::{JWT_ALGORITHM, TokensList, handle_errs},
 };
 use axum::{
     body::Body,
@@ -37,7 +37,7 @@ pub async fn verify_access_token(
         jsonwebtoken::decode(
             access_tkn.value().as_bytes(),
             &DecodingKey::from_secret(jwt_secret.as_bytes()),
-            &Validation::default(),
+            &Validation::new(JWT_ALGORITHM),
         ),
         (StatusCode::UNAUTHORIZED, "Invalid access token".to_string()),
         "Error decoding token",
@@ -82,7 +82,7 @@ pub async fn verify_refresh_token(
         jsonwebtoken::decode(
             access_tkn.value().as_bytes(),
             &DecodingKey::from_secret(jwt_secret.as_bytes()),
-            &Validation::default(),
+            &Validation::new(JWT_ALGORITHM),
         ),
         StatusCode::UNAUTHORIZED,
         "Invalid access token",
@@ -93,7 +93,7 @@ pub async fn verify_refresh_token(
         jsonwebtoken::decode(
             refresh_tkn.value().as_bytes(),
             &DecodingKey::from_secret(jwt_secret.as_bytes()),
-            &Validation::default(),
+            &Validation::new(JWT_ALGORITHM),
         ),
         StatusCode::UNAUTHORIZED,
         "Invalid access token",
@@ -106,7 +106,7 @@ pub async fn verify_refresh_token(
         &decoded_refresh_tkn.iss_id,
         access_tkn.value(),
         decoded_refresh_tkn.expires_at_sec,
-        TknType::Access,
+        TknType::Refresh,
     )) {
         return Err(StatusCode::UNAUTHORIZED);
     };

@@ -8,17 +8,28 @@ pub mod utils;
 use std::{sync::Arc, time::Duration};
 
 use auth_server::db::db_connect::connect_mod::{AppPool, connect_pg};
-use axum::{Router, serve};
+use axum::{
+    Router,
+    http::{
+        HeaderValue,
+        header::{AUTHORIZATION, COOKIE},
+    },
+    serve,
+};
+use sqlx::query_as;
 use tokio::{net::TcpListener, spawn, sync::RwLock, time::sleep};
 use tower::ServiceBuilder;
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use tower_http::{
+    cors::{Any, CorsLayer},
+    trace::TraceLayer,
+};
 
 use crate::{
     queries::app_queries::save_tokens,
     routes::{admin_routes::get_admin_router, client_routes::get_client_router},
     utils::{
         env_loader::{check_env_availability, load_env},
-        utils::{Tokens, TokensList},
+        utils::{Tkns, Tokens, TokensList, handle_errs},
     },
 };
 
@@ -47,7 +58,39 @@ async fn main() {
         None => "4000".to_string(),
     };
 
-    let sessions = Arc::new(RwLock::new(Tokens::new()));
+    struct GetDbTkns {
+        id: String,
+        access_token: String,
+        refresh_token: String,
+    }
+
+    let res = handle_errs(
+        query_as!(GetDbTkns, "SELECT * FROM sessions")
+            .fetch_all(&app_pool.pool)
+            .await,
+        (),
+        "Error getting sessions from db",
+    )
+    .unwrap();
+
+    let mut sess_tkns = Tokens::new();
+
+    for val in res {
+        let GetDbTkns {
+            id,
+            access_token,
+            refresh_token,
+        } = val;
+        sess_tkns.add_token((
+            id,
+            Tkns {
+                access: access_token,
+                refresh: refresh_token,
+            },
+        ));
+    }
+
+    let sessions = Arc::new(RwLock::new(sess_tkns));
     let sessions_clone = sessions.clone();
     let app_pool_clone = app_pool.clone();
 
@@ -81,7 +124,12 @@ async fn main() {
 
     let client_routes =
         get_client_router((env_hashmap.clone(), app_pool.clone(), sessions.clone()));
-    let admin_routes = get_admin_router((env_hashmap, app_pool, sessions));
+    let admin_routes = get_admin_router((env_hashmap.clone(), app_pool, sessions));
+
+    let empty = serde_json::json!([]).to_string();
+    let cors_origin: Vec<String> =
+        serde_json::from_str(env_hashmap.get("CORS_ORIGIN").unwrap_or(&empty))
+            .unwrap_or(Vec::new());
 
     let app = Router::new()
         .merge(client_routes)
@@ -89,7 +137,21 @@ async fn main() {
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
-                .layer(CorsLayer::new()),
+                .layer(
+                    CorsLayer::permissive().allow_origin(if cors_origin.len() == 0 {
+                        vec![]
+                    } else {
+                        let parsed = cors_origin
+                            .iter()
+                            .filter(|v| v.parse::<HeaderValue>().is_ok())
+                            .map(|v| {
+                                v.parse::<HeaderValue>()
+                                    .expect(&format!("Failed to parse cors origin: {}", v))
+                            });
+                        let collected: Vec<HeaderValue> = parsed.collect();
+                        collected
+                    }),
+                ),
         );
 
     let listener = TcpListener::bind(format!("0.0.0.0:{}", &port))

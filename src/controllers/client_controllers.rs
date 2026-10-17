@@ -11,14 +11,15 @@ use axum::{
     response::IntoResponse,
 };
 use axum_extra::extract::CookieJar;
-use sqlx::query;
+use chrono::Utc;
+use sqlx::{query, query_as};
 
 use crate::{
     models::{
         api_requests::{
             AvailableField, LoginReqBody, LoginRes, RegisterReqBody, UpdateUserReqBody,
         },
-        users::DecodedAccessTkn,
+        users::{DecodedAccessTkn, User, UserWithoutPassword},
     },
     queries::client_queries::{login_user_query, register_user_query},
     routes::client_routes::ClientRouterStates,
@@ -38,9 +39,7 @@ pub async fn register_user(
         Err(_) => return StatusCode::INTERNAL_SERVER_ERROR,
     };
 
-    let query_res = register_user_query(&body, password_hash)
-        .execute(&pool.pool)
-        .await;
+    let query_res = register_user_query(body, password_hash, &pool).await;
 
     if let Err(err) = query_res {
         return match err.as_database_error() {
@@ -104,10 +103,25 @@ pub async fn login_user(
     );
 
     let (user, err) = handle_errs_with_return(info, ser_err, ser_err_msg)?;
+    let User {
+        user_name,
+        password_hash,
+        email,
+        phone,
+        is_verified,
+        user_id,
+    } = user.clone();
+    let user_without_password = UserWithoutPassword {
+        user_id: user_id.clone(),
+        email,
+        user_name,
+        is_verified,
+        phone,
+    };
     ser_err = err;
 
     let (hash, err) =
-        handle_errs_with_return(PasswordHash::new(&user.password_hash), ser_err, ser_err_msg)?;
+        handle_errs_with_return(PasswordHash::new(&password_hash), ser_err, ser_err_msg)?;
     ser_err = err;
 
     let argon = Argon2::default();
@@ -134,13 +148,17 @@ pub async fn login_user(
         }
     };
 
-    let (access_token, refresh_token) = build_tokens(jwt_secret, &user, &sessions).await;
+    let (access_token, refresh_token) =
+        build_tokens(jwt_secret, &user_without_password, &sessions).await;
 
     let origin = match req_headers.get(header::ORIGIN) {
         Some(val) => {
             let (v, err) = handle_errs_with_return(val.to_str(), ser_err, ser_err_msg)?;
             ser_err = err;
-            v.to_string()
+            v.strip_prefix("http://")
+                .or_else(|| v.strip_prefix("https://"))
+                .unwrap_or(v)
+                .to_string()
         }
         None => {
             res_parts.status = StatusCode::BAD_REQUEST;
@@ -155,10 +173,30 @@ pub async fn login_user(
 
     let updated_jar = build_cookies(env_map, access_token, refresh_token, origin, jar).await;
 
+    let msg = "Failed last login update";
+    let now = Utc::now();
+
+    // Failed update shouldn't affect successful login
+    let _ = handle_errs(
+        query!(
+            "UPDATE users SET last_login = $1 WHERE user_id = $2",
+            now,
+            user_id
+        )
+        .execute(&pool.pool)
+        .await,
+        msg.to_string(),
+        msg,
+    );
+
     Ok((
         updated_jar,
         Response::from_parts(res_parts, Body::from(res_body)),
     ))
+}
+
+pub struct GetPasswordHash {
+    password_hash: String,
 }
 
 pub async fn update_user(
@@ -176,13 +214,28 @@ pub async fn update_user(
     let password_hash = match password {
         Some(p) => {
             let argon2 = Argon2::default();
-            let password_hash = match argon2.hash_password(&p.as_bytes()) {
-                Ok(hash) => hash.to_string(),
-                Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
-            };
+            let password_hash = handle_errs(
+                argon2.hash_password(&p.as_bytes()),
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Error getting password hash",
+            )?
+            .to_string();
             password_hash
         }
-        None => access_tkn.user_info.password_hash,
+        None => {
+            let res = handle_errs(
+                query_as!(
+                    GetPasswordHash,
+                    "SELECT password_hash FROM users WHERE user_id = $1",
+                    access_tkn.user_info.user_id
+                )
+                .fetch_one(&state.1.pool)
+                .await,
+                StatusCode::NOT_FOUND,
+                "Error getting stored user password hash",
+            )?;
+            res.password_hash
+        }
     };
 
     handle_errs(
@@ -194,7 +247,7 @@ pub async fn update_user(
             user_name.unwrap_or(access_tkn.user_info.user_name),
             password_hash,
             email.unwrap_or(access_tkn.user_info.email),
-            phone,
+            phone.or(access_tkn.user_info.phone),
             access_tkn.user_info.user_id
         )
         .execute(&state.1.pool)

@@ -10,17 +10,17 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::{
-    models::users::{DecodedAccessTkn, DecodedRefreshTkn, User},
-    utils::utils::{Tkns, Tokens, TokensList},
+    models::users::{DecodedAccessTkn, DecodedRefreshTkn, UserWithoutPassword},
+    utils::utils::{JWT_ALGORITHM, Tkns, Tokens, TokensList},
 };
 
 pub async fn build_tokens(
     jwt_secret: &str,
-    user: &User,
+    user: &UserWithoutPassword,
     sessions: &Arc<RwLock<Tokens>>,
 ) -> (String, String) {
     let encoding_key = EncodingKey::from_secret(jwt_secret.as_bytes());
-    let encoding_header = Header::default();
+    let encoding_header = Header::new(JWT_ALGORITHM);
 
     let iss_id = Uuid::new_v4().to_string();
 
@@ -50,7 +50,6 @@ pub async fn build_tokens(
         Tkns {
             access: access_token.clone(),
             refresh: refresh_token.clone(),
-            algorithm: encoding_header.alg,
         },
     ));
 
@@ -72,13 +71,21 @@ pub async fn build_cookies(
     let access_ck = Cookie::build(("access_token", access_token))
         .domain(origin.clone())
         .path("/")
-        .same_site(SameSite::None)
+        .same_site(if is_development {
+            SameSite::Lax
+        } else {
+            SameSite::None
+        })
         .secure(!is_development);
 
     let refresh_ck = Cookie::build(("refresh_token", refresh_token))
         .domain(origin)
         .path("/")
-        .same_site(SameSite::None)
+        .same_site(if is_development {
+            SameSite::Lax
+        } else {
+            SameSite::None
+        })
         .secure(!is_development);
 
     let mut updated_jar = jar.add(access_ck);

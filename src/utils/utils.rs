@@ -25,7 +25,6 @@ pub trait TokensList {
 pub struct Tkns {
     pub access: String,
     pub refresh: String,
-    pub algorithm: Algorithm,
 }
 
 type TokensListItem = (String, Tkns);
@@ -83,19 +82,8 @@ impl TokensList for Tokens {
         }
     }
     fn add_token(&mut self, item: TokensListItem) -> () {
-        let Tkns {
-            access,
-            refresh,
-            algorithm,
-        } = item.1;
-        let _ = self.unsaved.insert(
-            item.0,
-            Tkns {
-                access,
-                refresh,
-                algorithm,
-            },
-        );
+        let Tkns { access, refresh } = item.1;
+        let _ = self.unsaved.insert(item.0, Tkns { access, refresh });
     }
 }
 
@@ -201,3 +189,5 @@ where
         }
     }
 }
+
+pub static JWT_ALGORITHM: Algorithm = Algorithm::ES256;

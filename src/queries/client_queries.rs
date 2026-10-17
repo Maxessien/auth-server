@@ -1,26 +1,18 @@
 use auth_server::db::db_connect::connect_mod::AppPool;
 
 use serde_json::json;
-#[cfg(feature = "postgres")]
-use sqlx::Postgres;
 
 #[cfg(feature = "postgres")]
-use sqlx::postgres::PgArguments;
+use sqlx::postgres::PgQueryResult;
 
 #[cfg(feature = "mysql")]
-use sqlx::MySql;
-
-#[cfg(feature = "mysql")]
-use sqlx::mysql::MySqlArguments;
+use sqlx::mysql::MySqlQueryResult;
 
 #[cfg(feature = "sqlite")]
-use sqlx::Sqlite;
+use sqlx::sqlite::SqliteQueryResult;
 
-#[cfg(feature = "sqlite")]
-use sqlx::sqlite::SqliteArguments;
 use sqlx::{Error, query_as};
 
-use sqlx::query::Query;
 use sqlx::{query, types::chrono::Utc};
 use uuid::Uuid;
 
@@ -28,15 +20,19 @@ use crate::models::api_requests::{AvailableField, RegisterReqBody};
 use crate::models::users::{IsVerified, User};
 
 #[cfg(feature = "postgres")]
-type QueryType<'a> = Query<'a, Postgres, PgArguments>;
+type AppQueryResult = PgQueryResult;
 
 #[cfg(feature = "mysql")]
-type QueryType<'a> = Query<'a, MySql, MySqlArguments>;
+type AppQueryResult = MySqlQueryResult;
 
 #[cfg(feature = "sqlite")]
-type QueryType<'a> = Query<'a, Sqlite, SqliteArguments>;
+type AppQueryResult = SqliteQueryResult;
 
-pub fn register_user_query(body: &RegisterReqBody, password_hash: String) -> QueryType<'_> {
+pub async fn register_user_query(
+    body: RegisterReqBody,
+    password_hash: String,
+    pool: &AppPool,
+) -> Result<AppQueryResult, Error> {
     let RegisterReqBody {
         user_name,
         password: _,
@@ -55,8 +51,6 @@ pub fn register_user_query(body: &RegisterReqBody, password_hash: String) -> Que
     };
     let uuid = Uuid::new_v4().to_string();
     let now = Utc::now();
-
-    let phone = phone.as_deref().expect("NULL");
 
     #[cfg(feature = "postgres")]
     let query_val = query!(
@@ -92,7 +86,7 @@ pub fn register_user_query(body: &RegisterReqBody, password_hash: String) -> Que
         now
     );
 
-    query_val
+    query_val.execute(&pool.pool).await
 }
 
 pub async fn login_user_query(
@@ -117,7 +111,7 @@ pub async fn login_user_query(
             User,
             "
             SELECT user_id, password_hash, email, phone, is_verified, user_name FROM users
-            WHERE email = $1
+            WHERE phone = $1
         ",
             value,
         )

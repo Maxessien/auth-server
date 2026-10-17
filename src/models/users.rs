@@ -22,9 +22,18 @@ pub struct User {
     pub user_id: String,
 }
 
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+pub struct UserWithoutPassword {
+    pub user_name: String,
+    pub email: String,
+    pub phone: Option<String>,
+    pub is_verified: String,
+    pub user_id: String,
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Clone)]
 pub struct DecodedAccessTkn {
-    pub user_info: User,
+    pub user_info: UserWithoutPassword,
     pub expires_at_sec: i64,
     pub issued_at_sec: i64,
     pub iss_id: String,
