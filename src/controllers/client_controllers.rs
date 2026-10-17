@@ -151,27 +151,9 @@ pub async fn login_user(
     let (access_token, refresh_token) =
         build_tokens(jwt_secret, &user_without_password, &sessions).await;
 
-    let origin = match req_headers.get(header::ORIGIN) {
-        Some(val) => {
-            let (v, err) = handle_errs_with_return(val.to_str(), ser_err, ser_err_msg)?;
-            ser_err = err;
-            v.strip_prefix("http://")
-                .or_else(|| v.strip_prefix("https://"))
-                .unwrap_or(v)
-                .to_string()
-        }
-        None => {
-            res_parts.status = StatusCode::BAD_REQUEST;
-            return Err((
-                jar,
-                Response::from_parts(res_parts, Body::new(String::from("Bad request"))),
-            ));
-        }
-    };
-
     let res_body = handle_errs(serde_json::to_vec(&user), ser_err, ser_err_msg)?;
 
-    let updated_jar = build_cookies(env_map, access_token, refresh_token, origin, jar).await;
+    let updated_jar = build_cookies(env_map, access_token, refresh_token, jar).await;
 
     let msg = "Failed last login update";
     let now = Utc::now();
@@ -291,18 +273,6 @@ pub async fn refresh_access_token(
     let (access_token, refresh_token) =
         build_tokens(jwt_secret, &access_tkn.user_info, &sessions).await;
 
-    let origin = match req_headers.get(header::ORIGIN) {
-        Some(val) => handle_errs(
-            val.to_str(),
-            (jar.clone(), StatusCode::INTERNAL_SERVER_ERROR),
-            "Server Error",
-        )?
-        .to_string(),
-        None => {
-            return Err((jar, StatusCode::BAD_REQUEST));
-        }
-    };
-
-    let updated_jar = build_cookies(env_map, access_token, refresh_token, origin, jar).await;
+    let updated_jar = build_cookies(env_map, access_token, refresh_token, jar).await;
     Ok((updated_jar, StatusCode::OK))
 }

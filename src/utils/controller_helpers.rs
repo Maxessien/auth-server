@@ -60,7 +60,6 @@ pub async fn build_cookies(
     env_map: HashMap<String, String>,
     access_token: String,
     refresh_token: String,
-    origin: String,
     jar: CookieJar,
 ) -> CookieJar {
     let is_development = env_map
@@ -68,8 +67,7 @@ pub async fn build_cookies(
         .unwrap_or(&String::from("development"))
         == "development";
 
-    let access_ck = Cookie::build(("access_token", access_token))
-        .domain(origin.clone())
+    let mut access_ck = Cookie::build(("access_token", access_token))
         .path("/")
         .same_site(if is_development {
             SameSite::Lax
@@ -78,8 +76,7 @@ pub async fn build_cookies(
         })
         .secure(!is_development);
 
-    let refresh_ck = Cookie::build(("refresh_token", refresh_token))
-        .domain(origin)
+    let mut refresh_ck = Cookie::build(("refresh_token", refresh_token))
         .path("/")
         .same_site(if is_development {
             SameSite::Lax
@@ -87,6 +84,14 @@ pub async fn build_cookies(
             SameSite::None
         })
         .secure(!is_development);
+
+    match env_map.get("COOKIE_DOMAIN") {
+        Some(val) => {
+            access_ck = access_ck.domain(val.to_owned());
+            refresh_ck = refresh_ck.domain(val.to_owned());
+        }
+        None => (),
+    };
 
     let mut updated_jar = jar.add(access_ck);
     updated_jar = updated_jar.add(refresh_ck);

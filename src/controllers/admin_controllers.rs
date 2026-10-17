@@ -130,7 +130,7 @@ pub async fn update_user(
     ",
         user_name.unwrap_or(user.user_name),
         email.unwrap_or(user.email),
-        phone,
+        phone.or(user.phone),
         password_hash,
         is_verified.unwrap_or(user.is_verified),
         user_id
