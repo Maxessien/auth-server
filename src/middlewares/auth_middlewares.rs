@@ -1,10 +1,14 @@
-use crate::{models::users::DecodedRefreshTkn, utils::utils::TokensList};
+use std::collections::HashMap;
+
+use crate::{
+    models::users::DecodedRefreshTkn,
+    utils::utils::{TokensList, handle_errs},
+};
 use axum::{
     body::Body,
     extract::{Request, State},
-    http::StatusCode,
+    http::{Response, StatusCode, header},
     middleware::Next,
-    response::{IntoResponse, Response},
 };
 use axum_extra::extract::CookieJar;
 use jsonwebtoken::{DecodingKey, Validation};
@@ -12,7 +16,6 @@ use jsonwebtoken::{DecodingKey, Validation};
 use crate::{
     models::users::{DecodedAccessTkn, TknType},
     routes::client_routes::ClientRouterStates,
-    utils::utils::{AppErrors, AuthServerErrors},
 };
 
 pub async fn verify_access_token(
@@ -20,42 +23,26 @@ pub async fn verify_access_token(
     State(state): State<ClientRouterStates>,
     mut req: Request<Body>,
     next: Next,
-) -> impl IntoResponse {
+) -> Result<Response<Body>, (StatusCode, String)> {
     let (env_map, _, sessions) = state;
-    let (mut parts, _) = Response::new("").into_parts();
-    let access_tkn = match jar.get("access_token") {
-        Some(tkn) => tkn,
-        None => {
-            parts.status = StatusCode::UNAUTHORIZED;
-            return Response::from_parts(parts, Body::from("Access token missing".to_string()));
-        }
-    };
+    let access_tkn = jar
+        .get("access_token")
+        .ok_or((StatusCode::UNAUTHORIZED, "Access token missing".to_string()))?;
 
-    let jwt_secret = match env_map.get("JWT_SECRET") {
-        Some(jwt) => jwt,
-        None => {
-            return Response::from_parts(parts, Body::empty());
-        }
-    };
+    let jwt_secret = env_map
+        .get("JWT_SECRET")
+        .ok_or((StatusCode::UNAUTHORIZED, String::new()))?;
 
-    let decoded: DecodedAccessTkn = match jsonwebtoken::decode(
-        access_tkn.value().as_bytes(),
-        &DecodingKey::from_secret(jwt_secret.as_bytes()),
-        &Validation::default(),
-    ) {
-        Ok(val) => val.claims,
-        Err(err) => {
-            let app_err = AppErrors::new(
-                err.to_string(),
-                "Invalid access token",
-                line!(),
-                column!(),
-                file!(),
-            );
-            app_err.log();
-            return Response::from_parts(parts, app_err.as_http_body());
-        }
-    };
+    let decoded: DecodedAccessTkn = handle_errs(
+        jsonwebtoken::decode(
+            access_tkn.value().as_bytes(),
+            &DecodingKey::from_secret(jwt_secret.as_bytes()),
+            &Validation::default(),
+        ),
+        (StatusCode::UNAUTHORIZED, "Invalid access token".to_string()),
+        "Error decoding token",
+    )?
+    .claims;
 
     let lock = sessions.read().await;
 
@@ -65,7 +52,7 @@ pub async fn verify_access_token(
         decoded.expires_at_sec,
         TknType::Access,
     )) {
-        return Response::from_parts(parts, Body::new("Invalid access token".to_string()));
+        return Err((StatusCode::UNAUTHORIZED, "Invalid access token".to_string()));
     };
 
     drop(lock);
@@ -74,7 +61,7 @@ pub async fn verify_access_token(
 
     let response = next.run(req).await;
 
-    response
+    Ok(response)
 }
 
 pub async fn verify_refresh_token(
@@ -82,65 +69,36 @@ pub async fn verify_refresh_token(
     State(state): State<ClientRouterStates>,
     mut req: Request<Body>,
     next: Next,
-) -> impl IntoResponse {
+) -> Result<Response<Body>, StatusCode> {
     let (env_map, _, sessions) = state;
-    let access_tkn = match jar.get("access_token") {
-        Some(tkn) => tkn,
-        None => {
-            return (jar, StatusCode::UNAUTHORIZED);
-        }
-    };
-    let refresh_tkn = match jar.get("refresh_token") {
-        Some(tkn) => tkn,
-        None => {
-            return (jar, StatusCode::UNAUTHORIZED);
-        }
-    };
+    let access_tkn = jar.get("access_token").ok_or(StatusCode::UNAUTHORIZED)?;
+    let refresh_tkn = jar.get("refresh_token").ok_or(StatusCode::UNAUTHORIZED)?;
 
-    let jwt_secret = match env_map.get("JWT_SECRET") {
-        Some(jwt) => jwt,
-        None => {
-            return (jar, StatusCode::INTERNAL_SERVER_ERROR);
-        }
-    };
+    let jwt_secret = env_map
+        .get("JWT_SECRET")
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let decoded_access_tkn: DecodedAccessTkn = match jsonwebtoken::decode(
-        access_tkn.value().as_bytes(),
-        &DecodingKey::from_secret(jwt_secret.as_bytes()),
-        &Validation::default(),
-    ) {
-        Ok(val) => val.claims,
-        Err(err) => {
-            let app_err = AppErrors::new(
-                err.to_string(),
-                "Invalid access token",
-                line!(),
-                column!(),
-                file!(),
-            );
-            app_err.log();
-            return (jar, StatusCode::UNAUTHORIZED);
-        }
-    };
+    let decoded_access_tkn: DecodedAccessTkn = handle_errs(
+        jsonwebtoken::decode(
+            access_tkn.value().as_bytes(),
+            &DecodingKey::from_secret(jwt_secret.as_bytes()),
+            &Validation::default(),
+        ),
+        StatusCode::UNAUTHORIZED,
+        "Invalid access token",
+    )?
+    .claims;
 
-    let decoded_refresh_tkn: DecodedRefreshTkn = match jsonwebtoken::decode(
-        refresh_tkn.value().as_bytes(),
-        &DecodingKey::from_secret(jwt_secret.as_bytes()),
-        &Validation::default(),
-    ) {
-        Ok(val) => val.claims,
-        Err(err) => {
-            let app_err = AppErrors::new(
-                err.to_string(),
-                "Invalid refresh token",
-                line!(),
-                column!(),
-                file!(),
-            );
-            app_err.log();
-            return (jar, StatusCode::UNAUTHORIZED);
-        }
-    };
+    let decoded_refresh_tkn: DecodedRefreshTkn = handle_errs(
+        jsonwebtoken::decode(
+            refresh_tkn.value().as_bytes(),
+            &DecodingKey::from_secret(jwt_secret.as_bytes()),
+            &Validation::default(),
+        ),
+        StatusCode::UNAUTHORIZED,
+        "Invalid access token",
+    )?
+    .claims;
 
     let lock = sessions.read().await;
 
@@ -150,7 +108,7 @@ pub async fn verify_refresh_token(
         decoded_refresh_tkn.expires_at_sec,
         TknType::Access,
     )) {
-        return (jar, StatusCode::UNAUTHORIZED);
+        return Err(StatusCode::UNAUTHORIZED);
     };
 
     drop(lock);
@@ -159,8 +117,37 @@ pub async fn verify_refresh_token(
 
     let response = next.run(req).await;
 
-    (
-        CookieJar::from_headers(response.headers()),
-        response.status(),
-    )
+    Ok(response)
+}
+
+pub async fn verify_admin_key(
+    State(env_map): State<HashMap<String, String>>,
+    req: Request,
+    next: Next,
+) -> Result<Response<Body>, StatusCode> {
+    let header = match req.headers().get(header::AUTHORIZATION) {
+        Some(val) => handle_errs(
+            val.to_str(),
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Error converting header to string",
+        )?
+        .strip_prefix("Bearer ")
+        .ok_or(StatusCode::BAD_REQUEST)?
+        .to_string(),
+        None => {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+    };
+
+    let admin_key = env_map
+        .get("ADMIN_KEY")
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if *admin_key != header {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    let response = next.run(req).await;
+
+    Ok(response)
 }

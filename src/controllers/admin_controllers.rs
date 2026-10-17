@@ -1,3 +1,5 @@
+use argon2::Argon2;
+use argon2::password_hash::PasswordHasher;
 use auth_server::db::db_connect::connect_mod::AppPool;
 use axum::{
     Json,
@@ -5,9 +7,16 @@ use axum::{
     extract::{Query, State},
     http::StatusCode,
 };
-use sqlx::query_as;
+use serde::{Deserialize, Serialize};
+use sqlx::{query, query_as};
 
-use crate::{models::api_requests::GetUserRes, utils::utils::handle_errs};
+use crate::{
+    models::{
+        api_requests::{GetUserRes, UpdateUserAdminReq},
+        users::User,
+    },
+    utils::utils::handle_errs,
+};
 
 type GetUsersResType = (StatusCode, Json<Vec<GetUserRes>>);
 
@@ -32,8 +41,9 @@ pub async fn get_users(State(pool): State<AppPool>) -> Result<GetUsersResType, G
     ))
 }
 
-type GetUserResType = (StatusCode, Body);
-struct GetUserQuery {
+pub type GetUserResType = (StatusCode, Body);
+#[derive(Serialize, Deserialize)]
+pub struct GetUserQuery {
     user_id: String,
 }
 pub async fn get_user(
@@ -70,4 +80,82 @@ pub async fn get_user(
             "Failed to get user",
         )?),
     ))
+}
+
+pub async fn update_user(
+    State(pool): State<AppPool>,
+    Json(body): Json<UpdateUserAdminReq>,
+) -> Result<StatusCode, StatusCode> {
+    let UpdateUserAdminReq {
+        user_name,
+        email,
+        phone,
+        is_verified,
+        password,
+        user_id: _,
+    } = body;
+    let user = handle_errs(
+        query_as!(
+            User,
+            "
+        SELECT user_name, email, phone, user_id,
+        is_verified, password_hash FROM users WHERE user_id = $1
+        ",
+            body.user_id
+        )
+        .fetch_one(&pool.pool)
+        .await,
+        StatusCode::NOT_FOUND,
+        "User not found",
+    )?;
+
+    let password_hash = match password {
+        Some(p) => {
+            let argon2 = Argon2::default();
+            let password_hash = handle_errs(
+                argon2.hash_password(&p.as_bytes()),
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Error decoding password",
+            )?
+            .to_string();
+            password_hash
+        }
+        None => user.password_hash,
+    };
+
+    let res = query!(
+        "
+        UPDATE users SET user_name = $1, email = $2, phone = $3,
+        password_hash = $4, is_verified = $5
+    ",
+        user_name.unwrap_or(user.user_name),
+        email.unwrap_or(user.email),
+        phone,
+        password_hash,
+        is_verified.unwrap_or(user.is_verified)
+    )
+    .execute(&pool.pool)
+    .await;
+
+    handle_errs(
+        res,
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Failed to update user",
+    )?;
+
+    Ok(StatusCode::OK)
+}
+
+pub async fn delete_user(
+    State(pool): State<AppPool>,
+    Query(user_id): Query<String>,
+) -> Result<StatusCode, StatusCode> {
+    handle_errs(
+        query!("DELETE FROM users WHERE user_id = $1", user_id)
+            .execute(&pool.pool)
+            .await,
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Error deleting user",
+    )?;
+    Ok(StatusCode::OK)
 }

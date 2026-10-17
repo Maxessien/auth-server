@@ -79,8 +79,9 @@ async fn main() {
         }
     });
 
-    let client_routes = get_client_router((env_hashmap, app_pool, sessions));
-    let admin_routes = get_admin_router();
+    let client_routes =
+        get_client_router((env_hashmap.clone(), app_pool.clone(), sessions.clone()));
+    let admin_routes = get_admin_router((env_hashmap, app_pool, sessions));
 
     let app = Router::new()
         .merge(client_routes)

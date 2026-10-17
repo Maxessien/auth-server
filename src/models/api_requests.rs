@@ -26,7 +26,7 @@ pub struct UpdateUserReqBody {
     pub phone: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct GetUserRes {
     pub user_name: String,
     pub email: String,
@@ -36,6 +36,16 @@ pub struct GetUserRes {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub last_login: DateTime<Utc>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct UpdateUserAdminReq {
+    pub user_name: Option<String>,
+    pub email: Option<String>,
+    pub phone: Option<String>,
+    pub is_verified: Option<String>,
+    pub user_id: String,
+    pub password: Option<String>,
 }
 
 pub type LoginRes = (CookieJar, Response<Body>);
