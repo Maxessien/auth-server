@@ -8,21 +8,11 @@ pub mod utils;
 use std::{sync::Arc, time::Duration};
 
 use auth_server::db::db_connect::connect_mod::{AppPool, connect_pg};
-use axum::{
-    Router,
-    http::{
-        HeaderValue,
-        header::{AUTHORIZATION, COOKIE},
-    },
-    serve,
-};
+use axum::{Router, http::HeaderValue, serve};
 use sqlx::query_as;
 use tokio::{net::TcpListener, spawn, sync::RwLock, time::sleep};
 use tower::ServiceBuilder;
-use tower_http::{
-    cors::{Any, CorsLayer},
-    trace::TraceLayer,
-};
+use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::{
     queries::app_queries::save_tokens,

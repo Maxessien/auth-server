@@ -57,6 +57,9 @@ impl TokensList for Tokens {
         self.revoked.contains(&iss_id.to_string())
     }
     fn is_valid(&self, item: (&str, &str, i64, TknType)) -> bool {
+        if self.is_revoked(item.0) {
+            return false;
+        }
         match self.unsaved.get(item.0) {
             None => match self.saved.get(item.0) {
                 None => false,
@@ -190,4 +193,4 @@ where
     }
 }
 
-pub static JWT_ALGORITHM: Algorithm = Algorithm::ES256;
+pub static JWT_ALGORITHM: Algorithm = Algorithm::HS256;

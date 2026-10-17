@@ -104,7 +104,7 @@ pub async fn verify_refresh_token(
 
     if !lock.is_valid((
         &decoded_refresh_tkn.iss_id,
-        access_tkn.value(),
+        refresh_tkn.value(),
         decoded_refresh_tkn.expires_at_sec,
         TknType::Refresh,
     )) {
