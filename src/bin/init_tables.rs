@@ -32,16 +32,51 @@ async fn create_user_table(pool: &AppPool) {
         password_hash TEXT NOT NULL,
         email TEXT NOT NULL UNIQUE,
         phone TEXT UNIQUE,
-        is_verified TEXT NOT NULL,
-        last_login TIMESTAMPTZ NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        is_verified TEXT NOT NULL
         )
     "
     )
     .execute(&pool.pool)
     .await;
-    wrapper(res)
+    wrapper(res);
+
+    #[cfg(feature = "postgres")]
+    let res = query!(
+        "
+        ALTER TABLE users
+        ADD COLUMN last_login TIMESTAMPTZ NOT NULL,
+        ADD COLUMN created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    "
+    )
+    .execute(&pool.pool)
+    .await;
+
+    #[cfg(feature = "mysql")]
+    let res = query!(
+        "
+        ALTER TABLE users
+        ADD COLUMN last_login TIMESTAMP NOT NULL,
+        ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    "
+    )
+    .execute(&pool.pool)
+    .await;
+
+    #[cfg(feature = "sqlite")]
+    let res = query!(
+        "
+        ALTER TABLE users
+        ADD COLUMN last_login TEXT NOT NULL,
+        ADD COLUMN created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        ADD COLUMN updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    "
+    )
+    .execute(&pool.pool)
+    .await;
+
+    wrapper(res);
 }
 
 async fn create_sessions_table(pool: &AppPool) {

@@ -15,14 +15,16 @@ use sqlx::query;
 
 use crate::{
     models::{
-        api_requests::{AvailableField, LoginReqBody, RegisterReqBody, UpdateUserReqBody},
+        api_requests::{
+            AvailableField, LoginReqBody, LoginRes, RegisterReqBody, UpdateUserReqBody,
+        },
         users::DecodedAccessTkn,
     },
     queries::client_queries::{login_user_query, register_user_query},
     routes::client_routes::ClientRouterStates,
     utils::{
         controller_helpers::{build_cookies, build_tokens},
-        utils::{AppErrors, AuthServerErrors, TokensList},
+        utils::{TokensList, handle_errs, handle_errs_with_return},
     },
 };
 
@@ -58,13 +60,12 @@ pub async fn register_user(
     StatusCode::CREATED
 }
 
-#[axum::debug_handler]
 pub async fn login_user(
     jar: CookieJar,
     req_headers: HeaderMap,
     State(state): State<ClientRouterStates>,
     Json(body): Json<LoginReqBody>,
-) -> (CookieJar, Response<Body>) {
+) -> Result<LoginRes, LoginRes> {
     let (env_map, pool, sessions) = state;
     let mut res_header = HeaderMap::new();
     res_header.append(
@@ -83,40 +84,31 @@ pub async fn login_user(
             Some(phone) => login_user_query(AvailableField::Phone, phone, &pool).await,
             None => {
                 res_parts.status = StatusCode::BAD_REQUEST;
-                return (
+                return Err((
                     jar,
                     Response::from_parts(
                         res_parts,
                         Body::new("Email or phone required".to_string()),
                     ),
-                );
+                ));
             }
         },
     };
 
-    let user = match info {
-        Ok(val) => val,
-        Err(err) => {
-            let app_err =
-                AppErrors::new(err.to_string(), "Server error", line!(), column!(), file!());
-            app_err.log();
+    let ser_err_msg = "Server error";
+    let mut res_parts_clone = res_parts.clone();
+    res_parts_clone.status = StatusCode::INTERNAL_SERVER_ERROR;
+    let mut ser_err: LoginRes = (
+        jar.clone(),
+        Response::from_parts(res_parts_clone, Body::new(ser_err_msg.to_string())),
+    );
 
-            res_parts.status = StatusCode::INTERNAL_SERVER_ERROR;
-            return (jar, Response::from_parts(res_parts, app_err.as_http_body()));
-        }
-    };
+    let (user, err) = handle_errs_with_return(info, ser_err, ser_err_msg)?;
+    ser_err = err;
 
-    let hash = match PasswordHash::new(&user.password_hash) {
-        Ok(h) => h,
-        Err(err) => {
-            let app_err =
-                AppErrors::new(err.to_string(), "Server error", line!(), column!(), file!());
-            app_err.log();
-
-            res_parts.status = StatusCode::INTERNAL_SERVER_ERROR;
-            return (jar, Response::from_parts(res_parts, app_err.as_http_body()));
-        }
-    };
+    let (hash, err) =
+        handle_errs_with_return(PasswordHash::new(&user.password_hash), ser_err, ser_err_msg)?;
+    ser_err = err;
 
     let argon = Argon2::default();
 
@@ -125,69 +117,55 @@ pub async fn login_user(
         .is_ok()
     {
         res_parts.status = StatusCode::UNAUTHORIZED;
-        return (
+        return Err((
             jar,
             Response::from_parts(res_parts, Body::new("Invalid password".to_string())),
-        );
+        ));
     }
 
     let jwt_secret = match env_map.get("JWT_SECRET") {
         Some(secret) => secret,
         None => {
             res_parts.status = StatusCode::INTERNAL_SERVER_ERROR;
-            return (
+            return Err((
                 jar,
                 Response::from_parts(res_parts, Body::new("Server error".to_string())),
-            );
+            ));
         }
     };
 
     let (access_token, refresh_token) = build_tokens(jwt_secret, &user, &sessions).await;
 
     let origin = match req_headers.get(header::ORIGIN) {
-        Some(val) => match val.to_str() {
-            Ok(v) => v.to_string(),
-            Err(err) => {
-                let app_err =
-                    AppErrors::new(err.to_string(), "Server error", line!(), column!(), file!());
-                app_err.log();
-
-                return (jar, Response::from_parts(res_parts, app_err.as_http_body()));
-            }
-        },
+        Some(val) => {
+            let (v, err) = handle_errs_with_return(val.to_str(), ser_err, ser_err_msg)?;
+            ser_err = err;
+            v.to_string()
+        }
         None => {
             res_parts.status = StatusCode::BAD_REQUEST;
-            return (
+            return Err((
                 jar,
                 Response::from_parts(res_parts, Body::new(String::from("Bad request"))),
-            );
+            ));
         }
     };
 
-    let res_body = match serde_json::to_string(&user) {
-        Ok(val) => val,
-        Err(err) => {
-            let app_err =
-                AppErrors::new(err.to_string(), "Server error", line!(), column!(), file!());
-            app_err.log();
-
-            return (jar, Response::from_parts(res_parts, app_err.as_http_body()));
-        }
-    };
+    let res_body = handle_errs(serde_json::to_vec(&user), ser_err, ser_err_msg)?;
 
     let updated_jar = build_cookies(env_map, access_token, refresh_token, origin, jar).await;
 
-    (
+    Ok((
         updated_jar,
-        Response::from_parts(res_parts, Body::from(res_body.as_bytes().to_owned())),
-    )
+        Response::from_parts(res_parts, Body::from(res_body)),
+    ))
 }
 
 pub async fn update_user(
     Extension(access_tkn): Extension<DecodedAccessTkn>,
     State(state): State<ClientRouterStates>,
     Json(body): Json<UpdateUserReqBody>,
-) -> impl IntoResponse {
+) -> Result<StatusCode, StatusCode> {
     let UpdateUserReqBody {
         user_name,
         password,
@@ -200,55 +178,46 @@ pub async fn update_user(
             let argon2 = Argon2::default();
             let password_hash = match argon2.hash_password(&p.as_bytes()) {
                 Ok(hash) => hash.to_string(),
-                Err(_) => return StatusCode::INTERNAL_SERVER_ERROR,
+                Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
             };
             password_hash
         }
         None => access_tkn.user_info.password_hash,
     };
 
-    match query!(
-        "
+    handle_errs(
+        query!(
+            "
         UPDATE users SET user_name = $1, password_hash = $2, email = $3, phone = $4
         WHERE user_id = $5
         ",
-        user_name.unwrap_or(access_tkn.user_info.user_name),
-        password_hash,
-        email.unwrap_or(access_tkn.user_info.email),
-        phone,
-        access_tkn.user_info.user_id
-    )
-    .execute(&state.1.pool)
-    .await
-    {
-        Ok(_) => (),
-        Err(err) => {
-            let app_err = AppErrors::new(
-                err.to_string(),
-                "Couldn't update user",
-                line!(),
-                column!(),
-                file!(),
-            );
-            app_err.log();
-            return StatusCode::INTERNAL_SERVER_ERROR;
-        }
-    };
+            user_name.unwrap_or(access_tkn.user_info.user_name),
+            password_hash,
+            email.unwrap_or(access_tkn.user_info.email),
+            phone,
+            access_tkn.user_info.user_id
+        )
+        .execute(&state.1.pool)
+        .await,
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Couldn't update user",
+    )?;
 
-    StatusCode::OK
+    Ok(StatusCode::OK)
 }
 
+type RefreshAccessTknRes = (CookieJar, StatusCode);
 pub async fn refresh_access_token(
     Extension(access_tkn): Extension<DecodedAccessTkn>,
     State(state): State<ClientRouterStates>,
     req_headers: HeaderMap,
     jar: CookieJar,
-) -> impl IntoResponse {
+) -> Result<RefreshAccessTknRes, RefreshAccessTknRes> {
     let (env_map, pool, sessions) = state;
     let jwt_secret = match env_map.get("JWT_SECRET") {
         Some(secret) => secret,
         None => {
-            return (jar, StatusCode::INTERNAL_SERVER_ERROR);
+            return Err((jar, StatusCode::INTERNAL_SERVER_ERROR));
         }
     };
 
@@ -258,43 +227,29 @@ pub async fn refresh_access_token(
 
     drop(lock);
 
-    match query!("DELETE FROM sessions WHERE id = $1", access_tkn.iss_id)
-        .execute(&pool.pool)
-        .await
-    {
-        Ok(_) => (),
-        Err(err) => {
-            let app_err = AppErrors::new(
-                err.to_string(),
-                "Couldn't refresh user token",
-                line!(),
-                column!(),
-                file!(),
-            );
-            app_err.log();
-            return (jar, StatusCode::INTERNAL_SERVER_ERROR);
-        }
-    };
+    handle_errs(
+        query!("DELETE FROM sessions WHERE id = $1", access_tkn.iss_id)
+            .execute(&pool.pool)
+            .await,
+        (jar.clone(), StatusCode::INTERNAL_SERVER_ERROR),
+        "Couldn't refresh user token",
+    )?;
 
     let (access_token, refresh_token) =
         build_tokens(jwt_secret, &access_tkn.user_info, &sessions).await;
 
     let origin = match req_headers.get(header::ORIGIN) {
-        Some(val) => match val.to_str() {
-            Ok(v) => v.to_string(),
-            Err(err) => {
-                let app_err =
-                    AppErrors::new(err.to_string(), "Server error", line!(), column!(), file!());
-                app_err.log();
-
-                return (jar, StatusCode::INTERNAL_SERVER_ERROR);
-            }
-        },
+        Some(val) => handle_errs(
+            val.to_str(),
+            (jar.clone(), StatusCode::INTERNAL_SERVER_ERROR),
+            "Server Error",
+        )?
+        .to_string(),
         None => {
-            return (jar, StatusCode::BAD_REQUEST);
+            return Err((jar, StatusCode::BAD_REQUEST));
         }
     };
 
     let updated_jar = build_cookies(env_map, access_token, refresh_token, origin, jar).await;
-    (updated_jar, StatusCode::OK)
+    Ok((updated_jar, StatusCode::OK))
 }

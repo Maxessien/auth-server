@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, panic::Location};
 
 use axum::body::Body;
 use jsonwebtoken::Algorithm;
@@ -149,5 +149,55 @@ impl AuthServerErrors for AppErrors {
             self._file, self._line, self._col
         );
         println!("Cause: {}", self._cause)
+    }
+}
+
+#[track_caller]
+pub fn handle_errs<R, E, PE>(res: Result<R, PE>, custom_err: E, msg: &str) -> Result<R, E>
+where
+    PE: ToString,
+{
+    let location = Location::caller();
+
+    match res {
+        Ok(val) => Ok(val),
+        Err(err) => {
+            let app_err = AppErrors::new(
+                err.to_string(),
+                msg,
+                location.line(),
+                location.column(),
+                location.file(),
+            );
+            app_err.log();
+            return Err(custom_err);
+        }
+    }
+}
+
+#[track_caller]
+pub fn handle_errs_with_return<'a, R, E, PE>(
+    res: Result<R, PE>,
+    custom_err: E,
+    msg: &str,
+) -> Result<(R, E), E>
+where
+    PE: ToString,
+{
+    let location = Location::caller();
+
+    match res {
+        Ok(val) => Ok((val, custom_err)),
+        Err(err) => {
+            let app_err = AppErrors::new(
+                err.to_string(),
+                msg,
+                location.line(),
+                location.column(),
+                location.file(),
+            );
+            app_err.log();
+            return Err(custom_err);
+        }
     }
 }
