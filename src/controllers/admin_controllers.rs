@@ -22,6 +22,8 @@ use crate::{
         },
         users::User,
     },
+    queries::admin_queries::update_verified,
+    routes::client_routes::ClientRouterStates,
     utils::{
         controller_helpers::get_html_content,
         utils::{JWT_ALGORITHM, handle_errs},
@@ -33,7 +35,7 @@ pub async fn get_users(State(pool): State<AppPool>) -> Result<GetUsersResType, G
         GetUserRes,
         "
         SELECT user_name, email, phone, user_id,
-        is_verified, last_login, created_at, updated_at FROM users
+        email_verified, phone_verified, last_login, created_at, updated_at FROM users
     "
     )
     .fetch_all(&pool.pool)
@@ -57,7 +59,7 @@ pub async fn get_user(
         GetUserRes,
         "
         SELECT user_name, email, phone, user_id,
-        is_verified, last_login, created_at, updated_at FROM users
+        email_verified, phone_verified, last_login, created_at, updated_at FROM users
         WHERE user_id = $1
     ",
         user_id.user_id
@@ -97,7 +99,8 @@ pub async fn update_user(
         user_name,
         email,
         phone,
-        is_verified,
+        email_verified,
+        phone_verified,
         password,
         user_id,
     } = body;
@@ -106,7 +109,8 @@ pub async fn update_user(
             User,
             "
         SELECT user_name, email, phone, user_id,
-        is_verified, password_hash FROM users WHERE user_id = $1
+        email_verified, phone_verified, password_hash
+        FROM users WHERE user_id = $1
         ",
             user_id.clone()
         )
@@ -133,13 +137,14 @@ pub async fn update_user(
     let res = query!(
         "
         UPDATE users SET user_name = $1, email = $2, phone = $3,
-        password_hash = $4, is_verified = $5 WHERE user_id = $6
+        password_hash = $4, email_verified = $5, phone_verified = $6 WHERE user_id = $7
     ",
         user_name.unwrap_or(user.user_name),
         email.unwrap_or(user.email),
         phone.or(user.phone),
         password_hash,
-        is_verified.unwrap_or(user.is_verified),
+        email_verified.unwrap_or(user.email_verified),
+        phone_verified.unwrap_or(user.phone_verified),
         user_id
     )
     .execute(&pool.pool)
@@ -218,9 +223,10 @@ pub async fn init_verification_url(
 }
 
 pub async fn verify_tkn(
-    State(env_map): State<HashMap<String, String>>,
+    State(states): State<ClientRouterStates>,
     Query(tkn): Query<VerifyTknQuery>,
 ) -> Result<Redirect, Html<String>> {
+    let (env_map, pool, _) = states;
     let jwt_secret = env_map
         .get("JWT_SECRET")
         .ok_or(Html(get_html_content("Server Error")))?;
@@ -240,6 +246,15 @@ pub async fn verify_tkn(
     if now > decoded.expires_at {
         return Err(Html(get_html_content("Verification token has expired")));
     }
+
+    let val = decoded.value;
+
+    let query_res = update_verified(&decoded.verification_type, val, &pool).await;
+    handle_errs(
+        query_res,
+        |_| get_html_content("Verification failed"),
+        "Error updating verified user",
+    )?;
 
     Ok(Redirect::to(&decoded.redirect_uri))
 }

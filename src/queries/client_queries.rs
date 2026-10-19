@@ -1,7 +1,5 @@
 use auth_server::db::db_connect::connect_mod::AppPool;
 
-use serde_json::json;
-
 #[cfg(feature = "postgres")]
 use sqlx::postgres::PgQueryResult;
 
@@ -17,7 +15,7 @@ use sqlx::{query, types::chrono::Utc};
 use uuid::Uuid;
 
 use crate::models::api_requests::{AvailableField, RegisterReqBody};
-use crate::models::users::{IsVerified, User};
+use crate::models::users::User;
 
 #[cfg(feature = "postgres")]
 type AppQueryResult = PgQueryResult;
@@ -39,31 +37,24 @@ pub async fn register_user_query(
         email,
         phone,
     } = body;
-    let is_verified = match serde_json::to_string(&IsVerified {
-        email: false,
-        phone: false,
-    }) {
-        Ok(val) => val,
-        Err(_) => json!({
-            "email": false, "phone": false
-        })
-        .to_string(),
-    };
+
     let uuid = Uuid::new_v4().to_string();
     let now = Utc::now();
 
     #[cfg(feature = "postgres")]
     let query_val = query!(
         "
-            INSERT INTO users (user_name, password_hash, email, phone, is_verified, user_id,
+            INSERT INTO users (user_name, password_hash, email, phone,
+            email_verified, phone_verified, user_id,
             created_at, updated_at) VALUES
-            ($1, $2, $3, $4, $5, $6, $7, $8)
+            ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ",
         user_name,
         password_hash,
         email,
         phone,
-        is_verified,
+        false,
+        false,
         uuid,
         now,
         now
@@ -72,7 +63,8 @@ pub async fn register_user_query(
     #[cfg(not(feature = "postgres"))]
     let query_val = query!(
         "
-            INSERT INTO users (user_name, password_hash, email, phone, is_verified, user_id,
+            INSERT INTO users (user_name, password_hash, email, phone,
+            email_verified, phone_verified, user_id,
             created_at, updated_at) VALUES
             (?, ?, ?, ?, ?, ?, ?, ?)
         ",
@@ -80,7 +72,8 @@ pub async fn register_user_query(
         password_hash,
         email,
         phone,
-        is_verified,
+        false,
+        false,
         uuid,
         now,
         now
@@ -99,7 +92,8 @@ pub async fn login_user_query(
         return query_as!(
             User,
             "
-            SELECT user_id, password_hash, email, phone, is_verified, user_name FROM users
+            SELECT user_id, password_hash, email, phone,
+            email_verified, phone_verified, user_name FROM users
             WHERE email = $1
         ",
             value
@@ -110,7 +104,8 @@ pub async fn login_user_query(
         return query_as!(
             User,
             "
-            SELECT user_id, password_hash, email, phone, is_verified, user_name FROM users
+            SELECT user_id, password_hash, email, phone,
+            email_verified, phone_verified, user_name FROM users
             WHERE phone = $1
         ",
             value,
@@ -124,7 +119,8 @@ pub async fn login_user_query(
         return query_as!(
             User,
             "
-                SELECT user_id, password_hash, email, phone, is_verified, user_name FROM users
+                SELECT user_id, password_hash, email, phone,
+                email_verified, phone_verified, user_name FROM users
                 WHERE email = ?
             ",
             value
@@ -135,7 +131,8 @@ pub async fn login_user_query(
         return query_as!(
             User,
             "
-                SELECT user_id, password_hash, email, phone, is_verified, user_name FROM users
+                SELECT user_id, password_hash, email, phone,
+                email_verified, phone_verified, user_name FROM users
                 WHERE email = ?
             ",
             value,

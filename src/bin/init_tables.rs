@@ -32,7 +32,8 @@ async fn create_user_table(pool: &AppPool) {
         password_hash TEXT NOT NULL,
         email TEXT NOT NULL UNIQUE,
         phone TEXT UNIQUE,
-        is_verified TEXT NOT NULL
+        email_verified BOOLEAN NOT NULL DEFAULT false,
+        phone_verified BOOLEAN NOT NULL DEFAULT false
         )
     "
     )

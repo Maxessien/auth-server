@@ -107,14 +107,16 @@ pub async fn login_user(
         password_hash,
         email,
         phone,
-        is_verified,
+        email_verified,
+        phone_verified,
         user_id,
     } = user.clone();
     let user_without_password = UserWithoutPassword {
         user_id: user_id.clone(),
         email,
         user_name,
-        is_verified,
+        email_verified,
+        phone_verified,
         phone,
     };
     ser_err = err;

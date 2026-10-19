@@ -6,19 +6,14 @@ pub enum TknType {
     Refresh,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct IsVerified {
-    pub email: bool,
-    pub phone: bool,
-}
-
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct User {
     pub user_name: String,
     pub password_hash: String,
     pub email: String,
     pub phone: Option<String>,
-    pub is_verified: String,
+    pub email_verified: bool,
+    pub phone_verified: bool,
     pub user_id: String,
 }
 
@@ -27,7 +22,8 @@ pub struct UserWithoutPassword {
     pub user_name: String,
     pub email: String,
     pub phone: Option<String>,
-    pub is_verified: String,
+    pub email_verified: bool,
+    pub phone_verified: bool,
     pub user_id: String,
 }
 

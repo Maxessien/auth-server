@@ -8,13 +8,14 @@ pub mod utils;
 use std::{sync::Arc, time::Duration};
 
 use auth_server::db::db_connect::connect_mod::{AppPool, connect_pg};
-use axum::{Router, http::HeaderValue, serve};
+use axum::{Router, http::HeaderValue, routing::get, serve};
 use sqlx::query_as;
 use tokio::{net::TcpListener, spawn, sync::RwLock, time::sleep};
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::{
+    controllers::admin_controllers::verify_tkn,
     queries::app_queries::save_tokens,
     routes::{admin_routes::get_admin_router, client_routes::get_client_router},
     utils::{
@@ -120,7 +121,7 @@ async fn main() {
 
     let client_routes =
         get_client_router((env_hashmap.clone(), app_pool.clone(), sessions.clone()));
-    let admin_routes = get_admin_router((env_hashmap.clone(), app_pool, sessions));
+    let admin_routes = get_admin_router((env_hashmap.clone(), app_pool.clone(), sessions.clone()));
 
     let empty = serde_json::json!([]).to_string();
     let cors_origin: Vec<String> =
@@ -130,6 +131,10 @@ async fn main() {
     let app = Router::new()
         .merge(client_routes)
         .merge(admin_routes)
+        .route(
+            "/verify",
+            get(verify_tkn).with_state((env_hashmap, app_pool, sessions)),
+        )
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())

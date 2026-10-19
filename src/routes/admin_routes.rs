@@ -1,11 +1,11 @@
 use axum::{
     Router, middleware,
-    routing::{delete, get, put},
+    routing::{delete, get, post, put},
 };
 
 use crate::{
     controllers::admin_controllers::{
-        delete_user, get_user, get_users, init_verification_url, update_user, verify_tkn,
+        delete_user, get_user, get_users, init_verification_url, update_user,
     },
     middlewares::auth_middlewares::verify_admin_key,
     routes::client_routes::ClientRouterStates,
@@ -22,8 +22,7 @@ pub fn get_admin_router(states: ClientRouterStates) -> Router {
         .route("/admin/user", put(update_user).with_state(states.1.clone()))
         .route("/admin/user", delete(delete_user).with_state(states.1))
         .route(
-            "/admin/verify/init",
-            get(init_verification_url).with_state(states.0.clone()),
-        )
-        .route("/admin/verify", get(verify_tkn).with_state(states.0));
+            "/admin/verify",
+            post(init_verification_url).with_state(states.0.clone()),
+        );
 }
