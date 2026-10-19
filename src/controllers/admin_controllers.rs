@@ -8,24 +8,25 @@ use axum::{
     body::Body,
     extract::{Query, State},
     http::StatusCode,
+    response::{Html, Redirect},
 };
 use chrono::Utc;
-use jsonwebtoken::{EncodingKey, Header};
-use serde::{Deserialize, Serialize};
+use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation};
 use sqlx::{query, query_as};
 
 use crate::{
     models::{
         api_requests::{
-            GetUserRes, InitVerificationBody, InitVerificationClaims, InitVerificationRes,
-            UpdateUserAdminReq,
+            GetUserQuery, GetUserRes, GetUserResType, GetUsersResType, InitVerificationBody,
+            InitVerificationClaims, InitVerificationRes, UpdateUserAdminReq, VerifyTknQuery,
         },
         users::User,
     },
-    utils::utils::{JWT_ALGORITHM, handle_errs},
+    utils::{
+        controller_helpers::get_html_content,
+        utils::{JWT_ALGORITHM, handle_errs},
+    },
 };
-
-type GetUsersResType = (StatusCode, Json<Vec<GetUserRes>>);
 
 pub async fn get_users(State(pool): State<AppPool>) -> Result<GetUsersResType, GetUsersResType> {
     let res = query_as!(
@@ -48,11 +49,6 @@ pub async fn get_users(State(pool): State<AppPool>) -> Result<GetUsersResType, G
     ))
 }
 
-pub type GetUserResType = (StatusCode, Body);
-#[derive(Serialize, Deserialize)]
-pub struct GetUserQuery {
-    user_id: String,
-}
 pub async fn get_user(
     State(pool): State<AppPool>,
     Query(user_id): Query<GetUserQuery>,
@@ -181,6 +177,10 @@ pub async fn init_verification_url(
         value,
         redirect_uri,
     } = body;
+    if verification_type != "email" && verification_type != "phone" {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
     let jwt_secret = env_map
         .get("JWT_SECRET")
         .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -188,11 +188,11 @@ pub async fn init_verification_url(
     let header = Header::new(JWT_ALGORITHM);
     let key = EncodingKey::from_secret(jwt_secret.as_bytes());
 
-    let enocding = handle_errs(
+    let encoding = handle_errs(
         jsonwebtoken::encode(
             &header,
             &InitVerificationClaims {
-                exp: Utc::now().timestamp() + (5 * 60),
+                expires_at: Utc::now().timestamp() + (5 * 60),
                 redirect_uri,
                 value,
                 verification_type,
@@ -203,10 +203,43 @@ pub async fn init_verification_url(
         "Error encoding verification url",
     )?;
 
+    let server_url = env_map
+        .get("SERVER_URL")
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let url = format!("{}/verify?token={}", server_url, encoding);
+
     Ok((
         StatusCode::OK,
         Json(InitVerificationRes {
-            verification_url: enocding,
+            verification_url: url,
         }),
     ))
+}
+
+pub async fn verify_tkn(
+    State(env_map): State<HashMap<String, String>>,
+    Query(tkn): Query<VerifyTknQuery>,
+) -> Result<Redirect, Html<String>> {
+    let jwt_secret = env_map
+        .get("JWT_SECRET")
+        .ok_or(Html(get_html_content("Server Error")))?;
+
+    let key = DecodingKey::from_secret(jwt_secret.as_bytes());
+    let validation = Validation::new(JWT_ALGORITHM);
+
+    let decoded: InitVerificationClaims = handle_errs(
+        jsonwebtoken::decode(tkn.token.as_bytes(), &key, &validation),
+        |_| Html(get_html_content("Invalid Verfication url")),
+        "Error decoding verification tkn",
+    )?
+    .claims;
+
+    let now = Utc::now().timestamp();
+
+    if now > decoded.expires_at {
+        return Err(Html(get_html_content("Verification token has expired")));
+    }
+
+    Ok(Redirect::to(&decoded.redirect_uri))
 }

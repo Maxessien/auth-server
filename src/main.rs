@@ -26,7 +26,13 @@ use crate::{
 #[tokio::main]
 async fn main() {
     let env_hashmap = load_env().unwrap();
-    let required = ["RUNTIME_ENV", "DATABASE_URL", "JWT_SECRET", "ADMIN_KEY"];
+    let required = [
+        "RUNTIME_ENV",
+        "DATABASE_URL",
+        "JWT_SECRET",
+        "ADMIN_KEY",
+        "SERVER_URL",
+    ];
 
     let (has_missing, missing) = check_env_availability(&env_hashmap, required.to_vec());
 

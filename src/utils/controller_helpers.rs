@@ -98,3 +98,9 @@ pub async fn build_cookies(
 
     updated_jar
 }
+
+pub fn get_html_content(err_msg: &str) -> String {
+    let html = format!("<html>{}</htm>", err_msg);
+
+    html
+}

@@ -1,4 +1,6 @@
-use axum::{body::Body, response::Response};
+use core::str;
+
+use axum::{Json, body::Body, http::StatusCode, response::Response};
 use axum_extra::extract::CookieJar;
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::{DateTime, Utc};
@@ -67,10 +69,24 @@ pub struct InitVerificationClaims {
     pub verification_type: String,
     pub value: String,
     pub redirect_uri: String,
-    pub exp: i64,
+    pub expires_at: i64,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct InitVerificationRes {
     pub verification_url: String,
+}
+
+pub type GetUserResType = (StatusCode, Body);
+
+#[derive(Serialize, Deserialize)]
+pub struct GetUserQuery {
+    pub user_id: String,
+}
+
+pub type GetUsersResType = (StatusCode, Json<Vec<GetUserRes>>);
+
+#[derive(Deserialize)]
+pub struct VerifyTknQuery {
+    pub token: String,
 }
