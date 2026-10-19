@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use argon2::Argon2;
 use argon2::password_hash::PasswordHasher;
 use auth_server::db::db_connect::connect_mod::AppPool;
@@ -7,15 +9,20 @@ use axum::{
     extract::{Query, State},
     http::StatusCode,
 };
+use chrono::Utc;
+use jsonwebtoken::{EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 use sqlx::{query, query_as};
 
 use crate::{
     models::{
-        api_requests::{GetUserRes, UpdateUserAdminReq},
+        api_requests::{
+            GetUserRes, InitVerificationBody, InitVerificationClaims, InitVerificationRes,
+            UpdateUserAdminReq,
+        },
         users::User,
     },
-    utils::utils::handle_errs,
+    utils::utils::{JWT_ALGORITHM, handle_errs},
 };
 
 type GetUsersResType = (StatusCode, Json<Vec<GetUserRes>>);
@@ -35,7 +42,7 @@ pub async fn get_users(State(pool): State<AppPool>) -> Result<GetUsersResType, G
         StatusCode::OK,
         Json(handle_errs(
             res,
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(Vec::new())),
+            |_| (StatusCode::INTERNAL_SERVER_ERROR, Json(Vec::new())),
             "Failed to get users",
         )?),
     ))
@@ -67,16 +74,20 @@ pub async fn get_user(
         Body::from(handle_errs(
             serde_json::to_vec(&handle_errs(
                 res,
+                |_| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Body::new("Server err".to_string()),
+                    )
+                },
+                "Failed to get users",
+            )?),
+            |_| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Body::new("Server err".to_string()),
-                ),
-                "Failed to get users",
-            )?),
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Body::new("Server err".to_string()),
-            ),
+                )
+            },
             "Failed to get user",
         )?),
     ))
@@ -105,7 +116,7 @@ pub async fn update_user(
         )
         .fetch_one(&pool.pool)
         .await,
-        StatusCode::NOT_FOUND,
+        |_| StatusCode::NOT_FOUND,
         "User not found",
     )?;
 
@@ -114,7 +125,7 @@ pub async fn update_user(
             let argon2 = Argon2::default();
             let password_hash = handle_errs(
                 argon2.hash_password(&p.as_bytes()),
-                StatusCode::INTERNAL_SERVER_ERROR,
+                |_| StatusCode::INTERNAL_SERVER_ERROR,
                 "Error decoding password",
             )?
             .to_string();
@@ -140,7 +151,7 @@ pub async fn update_user(
 
     handle_errs(
         res,
-        StatusCode::INTERNAL_SERVER_ERROR,
+        |_| StatusCode::INTERNAL_SERVER_ERROR,
         "Failed to update user",
     )?;
 
@@ -155,8 +166,47 @@ pub async fn delete_user(
         query!("DELETE FROM users WHERE user_id = $1", user_id.user_id)
             .execute(&pool.pool)
             .await,
-        StatusCode::INTERNAL_SERVER_ERROR,
+        |_| StatusCode::INTERNAL_SERVER_ERROR,
         "Error deleting user",
     )?;
     Ok(StatusCode::OK)
+}
+
+pub async fn init_verification_url(
+    State(env_map): State<HashMap<String, String>>,
+    Json(body): Json<InitVerificationBody>,
+) -> Result<(StatusCode, Json<InitVerificationRes>), StatusCode> {
+    let InitVerificationBody {
+        verification_type,
+        value,
+        redirect_uri,
+    } = body;
+    let jwt_secret = env_map
+        .get("JWT_SECRET")
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let header = Header::new(JWT_ALGORITHM);
+    let key = EncodingKey::from_secret(jwt_secret.as_bytes());
+
+    let enocding = handle_errs(
+        jsonwebtoken::encode(
+            &header,
+            &InitVerificationClaims {
+                exp: Utc::now().timestamp() + (5 * 60),
+                redirect_uri,
+                value,
+                verification_type,
+            },
+            &key,
+        ),
+        |_| StatusCode::INTERNAL_SERVER_ERROR,
+        "Error encoding verification url",
+    )?;
+
+    Ok((
+        StatusCode::OK,
+        Json(InitVerificationRes {
+            verification_url: enocding,
+        }),
+    ))
 }

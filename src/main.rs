@@ -58,7 +58,7 @@ async fn main() {
         query_as!(GetDbTkns, "SELECT * FROM sessions")
             .fetch_all(&app_pool.pool)
             .await,
-        (),
+        |_| (),
         "Error getting sessions from db",
     )
     .unwrap();

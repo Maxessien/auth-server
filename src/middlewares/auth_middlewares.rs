@@ -39,7 +39,7 @@ pub async fn verify_access_token(
             &DecodingKey::from_secret(jwt_secret.as_bytes()),
             &Validation::new(JWT_ALGORITHM),
         ),
-        (StatusCode::UNAUTHORIZED, "Invalid access token".to_string()),
+        |_| (StatusCode::UNAUTHORIZED, "Invalid access token".to_string()),
         "Error decoding token",
     )?
     .claims;
@@ -84,7 +84,7 @@ pub async fn verify_refresh_token(
             &DecodingKey::from_secret(jwt_secret.as_bytes()),
             &Validation::new(JWT_ALGORITHM),
         ),
-        StatusCode::UNAUTHORIZED,
+        |_| StatusCode::UNAUTHORIZED,
         "Invalid access token",
     )?
     .claims;
@@ -95,7 +95,7 @@ pub async fn verify_refresh_token(
             &DecodingKey::from_secret(jwt_secret.as_bytes()),
             &Validation::new(JWT_ALGORITHM),
         ),
-        StatusCode::UNAUTHORIZED,
+        |_| StatusCode::UNAUTHORIZED,
         "Invalid access token",
     )?
     .claims;
@@ -128,7 +128,7 @@ pub async fn verify_admin_key(
     let header = match req.headers().get(header::AUTHORIZATION) {
         Some(val) => handle_errs(
             val.to_str(),
-            StatusCode::INTERNAL_SERVER_ERROR,
+            |_| StatusCode::INTERNAL_SERVER_ERROR,
             "Error converting header to string",
         )?
         .strip_prefix("Bearer ")

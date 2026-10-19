@@ -54,3 +54,23 @@ pub enum AvailableField {
     Email,
     Phone,
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct InitVerificationBody {
+    pub verification_type: String,
+    pub value: String,
+    pub redirect_uri: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct InitVerificationClaims {
+    pub verification_type: String,
+    pub value: String,
+    pub redirect_uri: String,
+    pub exp: i64,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct InitVerificationRes {
+    pub verification_url: String,
+}

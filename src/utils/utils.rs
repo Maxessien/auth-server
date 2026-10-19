@@ -144,9 +144,10 @@ impl AuthServerErrors for AppErrors {
 }
 
 #[track_caller]
-pub fn handle_errs<R, E, PE>(res: Result<R, PE>, custom_err: E, msg: &str) -> Result<R, E>
+pub fn handle_errs<R, PE, E, F>(res: Result<R, PE>, custom_err: F, msg: &str) -> Result<R, E>
 where
     PE: ToString,
+    F: Fn(PE) -> E,
 {
     let location = Location::caller();
 
@@ -161,7 +162,7 @@ where
                 location.file(),
             );
             app_err.log();
-            return Err(custom_err);
+            return Err(custom_err(err));
         }
     }
 }

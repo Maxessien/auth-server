@@ -61,7 +61,6 @@ pub async fn register_user(
 
 pub async fn login_user(
     jar: CookieJar,
-    req_headers: HeaderMap,
     State(state): State<ClientRouterStates>,
     Json(body): Json<LoginReqBody>,
 ) -> Result<LoginRes, LoginRes> {
@@ -120,9 +119,8 @@ pub async fn login_user(
     };
     ser_err = err;
 
-    let (hash, err) =
+    let (hash, _) =
         handle_errs_with_return(PasswordHash::new(&password_hash), ser_err, ser_err_msg)?;
-    ser_err = err;
 
     let argon = Argon2::default();
 
@@ -151,7 +149,18 @@ pub async fn login_user(
     let (access_token, refresh_token) =
         build_tokens(jwt_secret, &user_without_password, &sessions).await;
 
-    let res_body = handle_errs(serde_json::to_vec(&user), ser_err, ser_err_msg)?;
+    let res_body = handle_errs(
+        serde_json::to_vec(&user),
+        |_| {
+            let mut res_parts_clone = res_parts.clone();
+            res_parts_clone.status = StatusCode::INTERNAL_SERVER_ERROR;
+            (
+                jar.clone(),
+                Response::from_parts(res_parts_clone, Body::new(ser_err_msg.to_string())),
+            )
+        },
+        ser_err_msg,
+    )?;
 
     let updated_jar = build_cookies(env_map, access_token, refresh_token, jar).await;
 
@@ -167,7 +176,7 @@ pub async fn login_user(
         )
         .execute(&pool.pool)
         .await,
-        msg.to_string(),
+        |_| msg.to_string(),
         msg,
     );
 
@@ -198,7 +207,7 @@ pub async fn update_user(
             let argon2 = Argon2::default();
             let password_hash = handle_errs(
                 argon2.hash_password(&p.as_bytes()),
-                StatusCode::INTERNAL_SERVER_ERROR,
+                |_| StatusCode::INTERNAL_SERVER_ERROR,
                 "Error getting password hash",
             )?
             .to_string();
@@ -213,7 +222,7 @@ pub async fn update_user(
                 )
                 .fetch_one(&state.1.pool)
                 .await,
-                StatusCode::NOT_FOUND,
+                |_| StatusCode::NOT_FOUND,
                 "Error getting stored user password hash",
             )?;
             res.password_hash
@@ -234,7 +243,7 @@ pub async fn update_user(
         )
         .execute(&state.1.pool)
         .await,
-        StatusCode::INTERNAL_SERVER_ERROR,
+        |_| StatusCode::INTERNAL_SERVER_ERROR,
         "Couldn't update user",
     )?;
 
@@ -245,7 +254,6 @@ type RefreshAccessTknRes = (CookieJar, StatusCode);
 pub async fn refresh_access_token(
     Extension(access_tkn): Extension<DecodedAccessTkn>,
     State(state): State<ClientRouterStates>,
-    req_headers: HeaderMap,
     jar: CookieJar,
 ) -> Result<RefreshAccessTknRes, RefreshAccessTknRes> {
     let (env_map, pool, sessions) = state;
@@ -266,7 +274,7 @@ pub async fn refresh_access_token(
         query!("DELETE FROM sessions WHERE id = $1", access_tkn.iss_id)
             .execute(&pool.pool)
             .await,
-        (jar.clone(), StatusCode::INTERNAL_SERVER_ERROR),
+        |_| (jar.clone(), StatusCode::INTERNAL_SERVER_ERROR),
         "Couldn't refresh user token",
     )?;
 
